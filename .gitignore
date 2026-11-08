@@ -1,0 +1,11 @@
+.DS_Store
+.idea/
+.vscode/
+*.iml
+build/
+.gradle/
+node_modules/
+.env
+.env.*
+.omc/
+!.omc/skills/
