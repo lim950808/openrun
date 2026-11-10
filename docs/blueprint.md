@@ -1,6 +1,6 @@
 # openrun 블루프린트: 무엇을 만들고, 무엇을 익히고, 무엇이 남는가
 
-최종 수정: 2026-11-09. 세부 일정과 결정 근거는 [roadmap.md](roadmap.md)와 [adr/](adr/)에 있다. 이 문서는 전체 그림을 한 장에 보기 위한 것이다.
+최종 수정: 2026-11-10. 세부 일정과 결정 근거는 [roadmap.md](roadmap.md)와 [adr/](adr/)에 있다. 이 문서는 전체 그림을 한 장에 보기 위한 것이다.
 
 ---
 
@@ -123,7 +123,7 @@ gantt
     section 1차 (8주)
     릴리스 0 하네스            :r0, 2026-11-09, 7d
     M1 좌석 선점               :m1, after r0, 14d
-    첫 리포트 발행             :milestone, 2026-11-29, 0d
+    첫 리포트 발행             :milestone, 2026-11-28, 0d
     M2 최소 대기열             :m2, after m1, 14d
     M3 결제 핵심               :m3, after m2, 14d
     최소 화면 + 자동화          :m4, after m3, 7d
@@ -146,11 +146,11 @@ gantt
 | 단계 | 만드는 기능 | 익히는 스킬 | 쓰는 오픈소스 · 레퍼런스 | 시연 가능한 결과물 |
 |---|---|---|---|---|
 | **릴리스 0** 하네스 | Gradle 멀티모듈 골격, compose `core`, CI, 리포트 템플릿, 요구사항 v1 | Spring Boot 4 마이그레이션 감각, Testcontainers, ArchUnit 경계 테스트, ADR 쓰기 | Testcontainers, ArchUnit, Flyway, k6, Docker Compose profiles | 빌드·테스트·부하 스모크가 도는 빈 서비스. ADR 3개 |
-| **M1** 좌석 선점 | 좌석 hold API, 만료 스케줄러, 락 전략 4종 비교, Inventory 추상화(지정석) | 트랜잭션 격리 수준, `FOR UPDATE` vs `SKIP LOCKED` vs 조건부 UPDATE, Redis Lua 원자성, open-model 부하 설계 | alf.io `TicketRepository`(설계만), pretix `locking.py`(설계만), Spring Data Redis `DefaultRedisScript`, ShedLock, k6 `ramping-arrival-rate`, Tecoble 락 비교 글, 올리브영 선착순 쿠폰 글 | **리포트 #1**: 오버셀 N건 → 0건, 전략별 p99·처리량 비교표 |
+| **M1** 좌석 선점 | 좌석 hold API, 만료 스케줄러, 락 전략 5종 비교, Inventory 추상화(지정석) | 트랜잭션 격리 수준, `FOR UPDATE` vs `SKIP LOCKED` vs 조건부 UPDATE, Redis Lua 원자성, open-model 부하 설계 | alf.io `TicketRepository`(설계만), pretix `locking.py`(설계만), Spring Data Redis `DefaultRedisScript`, ShedLock, k6 `ramping-arrival-rate`, Tecoble 락 비교 글, 올리브영 선착순 쿠폰 글 | **리포트 #1**: 오버셀 N건 → 0건, 전략별 p99·처리량 비교표 |
 | **M2** 최소 대기열 | 순번 발급, 폴링 API, 입장 스케줄러, 입장 토큰(JWT), 좌석 API 토큰 검증, 입장 속도 제어 | 분산 카운터, FIFO 공정성 측정, 토큰 기반 접근 제어, 레이트리밋 | Redis ZSET, Bucket4j, ShedLock, SeatGeek "Room" 발표, Cloudflare Waiting Room 글, AWS 대기열 코드(설계만) | 리포트에 대기열 이탈률·FIFO 위반률 추가. "새로고침 폭풍" 시나리오 통과 |
 | **M3** 결제 핵심 | 토스 결제위젯 연동, confirm, 서버 금액 검증, 멱등키, 웹훅 inbox, 예약·결제 상태머신 분리, Fake PG | PG 승인창과 내부 TTL 정합, 웹훅 멱등·순서 역행 처리, sealed class 상태머신, 결과형 타입(Success·Failure·Unknown) | 토스페이먼츠 문서 + tosspayments-sample, Medusa `completeCartWorkflow`, Saleor TransactionItem, Temporal `bookingsaga`(설계만), Arrow `saga`, Resilience4j, 카카오페이 msa-transaction 글 | 리포트에 hold→confirm 전환율, 승인·만료 레이스 0건. 실제 토스 테스트 결제 영상 |
 | **M4** 화면 + 자동화 | Next.js 3페이지, 주간 오픈런 cron, 리포트 자동 발행, README | 상태별 UX(대기·만료·실패), 최소 디자인 토큰, GitHub Actions 스케줄 | Next.js, SVG 좌석맵 직접 구현, SEED 토큰 구조(참고), GitHub Actions | **1차 완료**: 공개 데모 URL + 매주 자동 발행되는 리포트 페이지 |
-| **1.5차** 제품 완성도 | 취소수수료 정책 엔진, 부분취소, 대기자 승계(hold 체인), janitor 3경로, 봇 방어, 사람 참여 오픈런 데이 | 정책 테이블 설계, 보상 트랜잭션, 어뷰징 대응, 사람 vs 봇 공정성 측정 | Stripe limited inventory 문서, commercetools ReserveOnCart 문서, Turnstile 또는 ALTCHA, fingerprintjs, 우아한형제들 결제 장애 대응 글 | 리포트에 취소 정확도·봇 차단률·사람 vs 봇 성공률 추가 |
+| **1.5차** 제품 완성도 | 취소수수료 정책 엔진, 부분취소, 대기자 승계(hold 체인), janitor 확장, 봇 방어, 사람 참여 오픈런 데이 | 정책 테이블 설계, 보상 트랜잭션, 어뷰징 대응, 사람 vs 봇 공정성 측정 | Stripe limited inventory 문서, commercetools ReserveOnCart 문서, Turnstile 또는 ALTCHA, fingerprintjs, 우아한형제들 결제 장애 대응 글 | 리포트에 취소 정확도·봇 차단률·사람 vs 봇 성공률 추가 |
 | **2차** 측정 파이프라인 | Outbox CDC, Kafka 토픽, DuckDB 적재, dbt 마트(퍼널·이탈·매출손실), 복원 검증, 리니지, Evidence 리포트 | CDC 운영, 이벤트 스키마, 세션 윈도우 퍼널, dbt contracts·tests, OpenLineage, 데이터 품질 자동점검 | Debezium(Outbox SMT + OpenLineage), Kafka 4, Apicurio, DuckDB, dbt-duckdb, Marquez, Evidence | 오픈런 리플레이 화면, 리니지 그래프, "봇 파라미터 복원 오차 0.x%p" |
 | **3차** AI 브리핑 + 평가 | 리포트 브리핑 에이전트, 지표 조회 `@Tool`, 입·출력 가드 Advisor, 평가셋, 트레이싱, 실패 케이스 환류 | Spring AI Advisors, 에이전트 평가 설계(pass^k, grader 분리), LLM 관측, 운영 실패 → 평가셋 루프 | Spring AI 2.0, Langfuse, OpenTelemetry GenAI 규약, Anthropic 에이전트 평가 글, 토스 Benchmark 구축기 | 매주 리포트 상단에 AI 브리핑 + 평가 성적표(정답률·환각 0건) |
 
@@ -163,12 +163,13 @@ gantt
 ```mermaid
 stateDiagram-v2
     [*] --> AVAILABLE
-    AVAILABLE --> HELD : hold(userId, ttl=12m)
+    AVAILABLE --> HELD : hold(memberId, ttl=12m)
     HELD --> AVAILABLE : TTL 만료 · 사용자 해제
     HELD --> SOLD : 결제 confirm 성공
     SOLD --> AVAILABLE : 취소 (→ 대기자 승계, 1.5차)
-    HELD --> HELD : 결제 진행 중 TTL 연장 (선택)
 ```
+
+좌석 상태는 예약·결제 상태에서 파생된다. 결제 진행 중(PAYING)인 좌석은 TTL이 지나도 HELD로 남는다. 규칙은 [ADR-0004](adr/0004-state-transitions.md).
 
 ### 5-2. 예약과 결제, 두 상태머신 분리 (M3)
 
@@ -177,27 +178,40 @@ stateDiagram-v2
 ```mermaid
 stateDiagram-v2
     state "예약 (Reservation)" as R {
-        [*] --> HOLDING
-        HOLDING --> PAYING : 결제 요청 시작
-        HOLDING --> EXPIRED : TTL 만료
-        PAYING --> CONFIRMED : 결제 CONFIRMED 수신
-        PAYING --> EXPIRED : TTL 만료 (결제 미완)
-        PAYING --> HOLDING : 결제 FAILED (재시도 허용)
-        CONFIRMED --> CANCELLED : 취소
+        state "HOLDING" as R_HOLDING
+        state "PAYING" as R_PAYING
+        state "CONFIRMED" as R_CONFIRMED
+        state "EXPIRED" as R_EXPIRED
+        state "CANCELLED" as R_CANCELLED
+        [*] --> R_HOLDING
+        R_HOLDING --> R_PAYING : 결제 시작 (payment REQUESTED 생성)
+        R_HOLDING --> R_EXPIRED : TTL 만료
+        R_HOLDING --> R_CANCELLED : 사용자 해제
+        R_PAYING --> R_CONFIRMED : 결제 CONFIRMED
+        R_PAYING --> R_EXPIRED : TTL 만료 (결제 REQUESTED, 또는 UNKNOWN 5분 경과)
+        R_PAYING --> R_HOLDING : 결제 FAILED (미만료, 재시도 허용)
+        R_CONFIRMED --> R_CANCELLED : 취소
     }
     state "결제 (Payment)" as P {
-        [*] --> REQUESTED
-        REQUESTED --> CONFIRMING : confirm 호출
-        CONFIRMING --> CONFIRMED : 200 OK
-        CONFIRMING --> FAILED : 4xx
-        CONFIRMING --> UNKNOWN : 타임아웃
-        UNKNOWN --> CONFIRMED : janitor 재조회
-        UNKNOWN --> FAILED : janitor 재조회
-        CONFIRMED --> CANCELLED : 취소 API
+        state "REQUESTED" as P_REQUESTED
+        state "CONFIRMING" as P_CONFIRMING
+        state "CONFIRMED" as P_CONFIRMED
+        state "FAILED" as P_FAILED
+        state "UNKNOWN" as P_UNKNOWN
+        state "CANCELLED" as P_CANCELLED
+        [*] --> P_REQUESTED
+        P_REQUESTED --> P_CONFIRMING : confirm 수신 (hold 유효 검사)
+        P_REQUESTED --> P_FAILED : failUrl · 예약 만료 연쇄
+        P_CONFIRMING --> P_CONFIRMED : 200 DONE · DONE 웹훅
+        P_CONFIRMING --> P_FAILED : 4xx · ABORTED·EXPIRED 웹훅
+        P_CONFIRMING --> P_UNKNOWN : 타임아웃 · 5xx · 30초 초과
+        P_UNKNOWN --> P_CONFIRMED : 재조회 · 웹훅 DONE · 지연 200
+        P_UNKNOWN --> P_FAILED : 재조회 · 웹훅 ABORTED
+        P_CONFIRMED --> P_CANCELLED : 취소 API · 보상 취소
     }
 ```
 
-규칙: 상태 전이는 단조(monotonic)다. 웹훅이 늦게 와서 과거 상태를 말하면 폐기한다. 승인은 됐는데 hold가 만료된 경우는 자동 취소로 보상한다.
+규칙: 상태 전이는 단조(monotonic)다. 웹훅이 늦게 와서 과거 상태를 말하면 폐기한다. confirm 호출 중에는 좌석이 HELD로 유지되므로 응답이 늦어도 확정한다. 토스 조회가 5분 이상 실패해 좌석을 푼 뒤 승인이 확인되면 자동 취소로 보상한다. 전이표는 [ADR-0004](adr/0004-state-transitions.md).
 
 ### 5-3. hold TTL과 토스 10분 승인창 정합 (M3의 핵심)
 
@@ -211,9 +225,13 @@ sequenceDiagram
     participant T as 토스페이먼츠
 
     U->>S: 좌석 hold 요청 (입장 토큰 포함)
-    S->>R: Lua: SET seat NX PX 720000 (12분)
-    S->>DB: reservation HOLDING, 가격 스냅샷, orderId·amount 저장
+    S->>R: Lua: SET seat NX PX 720000 (REDIS_LUA 전략일 때)
+    S->>DB: seat_hold · reservation HOLDING · 가격 스냅샷
     S-->>U: hold 성공, 만료 시각
+
+    U->>S: 결제 시작
+    S->>DB: reservation PAYING · payment REQUESTED (orderId, amount)
+    S-->>U: orderId, amount
 
     U->>T: 결제위젯 requestPayment(orderId, amount)
     T-->>U: successUrl 리다이렉트 (paymentKey, orderId, amount)
@@ -221,16 +239,16 @@ sequenceDiagram
 
     S->>DB: amount 비교 (변조 방어), hold 소유·만료 재검증
     alt hold 만료됨
+        S->>DB: payment FAILED · reservation EXPIRED
         S-->>U: confirm 하지 않음, 좌석 재선택 유도
     else hold 유효
-        S->>DB: payment REQUESTED → CONFIRMING
+        S->>DB: payment REQUESTED → CONFIRMING (이후 좌석은 TTL과 무관하게 HELD)
         S->>T: POST /v1/payments/confirm (Idempotency-Key = reservationId:attempt)
         alt 200 OK
             T-->>S: DONE
-            S->>DB: payment CONFIRMED, reservation CONFIRMED, outbox 적재
-            S->>R: seat SOLD
+            S->>DB: payment CONFIRMED · reservation CONFIRMED · outbox (한 트랜잭션)
         else 타임아웃
-            S->>DB: payment UNKNOWN (janitor가 재조회)
+            S->>DB: payment UNKNOWN (janitor가 재조회, 5분 넘게 실패하면 좌석 해제 후 보상)
         end
     end
 
@@ -253,15 +271,15 @@ sequenceDiagram
     participant J as 입장 스케줄러 (ShedLock)
 
     U->>S: 대기열 진입
-    S->>R: ZADD queue NX score=now userId
+    S->>R: ZADD queue NX score=now memberId
     S-->>U: 대기 토큰 (visitor token)
     loop 폴링 (2~3초)
         U->>S: 내 순번?
-        S->>R: ZRANK queue userId
+        S->>R: ZRANK queue memberId
         S-->>U: 앞에 N명
     end
     J->>R: 매초 ZPOPMIN queue, N명 (Bucket4j로 속도 제어)
-    J->>R: SET active:userId EX 600
+    J->>R: SET active:memberId EX 600
     U->>S: 내 순번?
     S-->>U: 입장 토큰 (access token, JWT, 10분)
     U->>S: 좌석 API 호출 + access token
@@ -357,16 +375,16 @@ openrun/
 │ 도착률 peak    │ 오버셀         │ p99 (hold)     │ FIFO 위반  │
 │ 3,000 rps      │ 0건            │ 142 ms         │ 0.3%      │
 ├────────────────┼────────────────┼────────────────┼───────────┤
-│ 대기열 이탈률   │ hold→confirm   │ 승인·만료 레이스│ 봇 차단률  │
-│ 18.2%          │ 61.4%          │ 0건            │ 94.1%     │
+│ 대기열 이탈률   │ hold→confirm   │ 레이스 잔존     │ 봇 차단률  │
+│ 14.8%          │ 86.1%          │ 0건            │ 94.1%     │
 ├────────────────┴────────────────┴────────────────┴───────────┤
-│ 퍼널  진입 ████████████ 100%                                  │
-│       입장 ████████▌    71%                                   │
-│       hold ██████▏      52%                                   │
-│       결제 ████▏        35%  ← 추정 매출 손실 ₩x,xxx,xxx (합성) │
-│       확정 ███▊         32%                                   │
+│ 퍼널  진입 ████████████ 100%  (10,000명)                       │
+│       입장 ██████████▏  85%                                   │
+│       hold █▍           11%  (1,500석 / 평균 1.4석 ≈ 1,070건)   │
+│       결제 █▎           10%                                   │
+│       확정 █▏            9%  ← 미확정 좌석 추정 손실 (합성)       │
 ├──────────────────────────────────────────────────────────────┤
-│ 복원 검증: 설정 포기율 12.0% → 마트 11.8% (오차 0.2%p)          │
+│ 복원 검증: 설정 이탈률 15.0% → 마트 14.8% (오차 0.2%p)          │
 │ 리니지: outbox → kafka → stg_events → fct_funnel  [Marquez]   │
 ├──────────────────────────────────────────────────────────────┤
 │ AI 브리핑 (평가 정답률 97%, 환각 0건)                           │

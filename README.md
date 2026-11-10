@@ -6,13 +6,16 @@
 
 ## 상태
 
-2026-11-09 — 리서치·로드맵·ADR 완료, 릴리스 0 시작 전. 첫 리포트 목표 2026-11-29.
+2026-11-10 — 리서치·로드맵·ADR·요구사항·용어집·지표 정의 완료, 릴리스 0 시작 전. 첫 리포트 목표 2026-11-28(토).
 
 ## 문서
 
 - `docs/blueprint.md` — **한 장으로 보는 전체 그림**: 제품 흐름, 아키텍처, 타임라인, 단계별 기능·스킬·오픈소스·결과물, 핵심 설계 다이어그램
 - `docs/roadmap.md` — 주차별 로드맵, 직군 트랙, 보류·제외, Boot 4 검증 게이트
-- `docs/adr/` — ADR-0001 1차 범위 축소, ADR-0002 합성 데이터 한계, ADR-0003 JPA·JDBC 경계
+- `docs/requirements.md` — 요구사항 v1: 도메인 고정값(좌석 수·가격·TTL), 주간 운영 일정, 사용자 스토리와 수용 기준, 비기능 목표, 봇 시나리오 파라미터
+- `docs/glossary.md` — 용어집: 한글·코드 식별자·정의, 쓰지 않는 말
+- `docs/metrics.md` — 지표 정의: 단계별 지표의 수식·분모·측정 지점·목표
+- `docs/adr/` — ADR-0001 1차 범위 축소, ADR-0002 합성 데이터 한계, ADR-0003 JPA·JDBC 경계, ADR-0004 상태 전이 규칙
 - `docs/research/01-reservation-queue-concurrency.md` — 예약·대기열·좌석 선점 동시성 오픈소스/레퍼런스
 - `docs/research/02-payment-commerce.md` — 결제·커머스: [payment-consistency-lab](https://github.com/jaehafe/payment-consistency-lab) 위에 무엇을 쌓을 것인가
 - `docs/research/03-data-ai-harness.md` — CDC/레이크하우스/리니지/시맨틱 레이어 + AI 평가 하네스, 채용 키워드
