@@ -88,6 +88,7 @@ Spring AI 2.0이 Spring Boot 4를 전제하므로 Boot 4로 시작한다. 단 1�
 - [ADR-0002 합성 데이터의 한계와 대응](adr/0002-synthetic-data-limits.md)
 - [ADR-0003 JPA와 JDBC 혼용 경계](adr/0003-jpa-jdbc-boundary.md)
 - [ADR-0004 좌석·예약·결제 상태 전이 규칙](adr/0004-state-transitions.md)
+- [ADR-0005 좌석 재고 행 모델과 락 전략 선택 기준](adr/0005-seat-inventory-row-and-strategy.md) (제안)
 
 ## 요구사항·용어·지표
 

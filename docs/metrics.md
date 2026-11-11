@@ -15,12 +15,15 @@
 
 | 지표 | 정의 | 분자 / 분모 | 측정 지점 | 목표 |
 |---|---|---|---|---|
-| `oversell_count` | 같은 회차·좌석에 HOLDING·PAYING·CONFIRMED 예약이 2건 이상인 좌석 수. "활성 예약"(HOLDING·PAYING)보다 넓은 집합임에 주의 | 해당 좌석 수 / 없음 | app (실행 종료 후 검증 쿼리) | 0 |
+| `oversell_count` | **잔존.** 점검 시점에 같은 회차·좌석에 PAYING·CONFIRMED 또는 (HOLDING이고 `expires_at > now()`)인 예약이 2건 이상인 좌석 수. `reservation_seat` 기준(ADR-0005 §2) | 해당 좌석 수 / 없음 | app (`GET /api/admin/showtimes/{id}/integrity`) | 0 |
+| `oversell_occurred_count` | **발생.** 실행 중 한 번이라도 두 예약의 활성 구간이 겹친 좌석 수. 구간 시작 = `held_at`(claim 성공 직후의 DB 시각; 트랜잭션 시작인 `created_at`은 락 대기 시간을 포함해 거짓 겹침을 만든다), 끝 = CANCELLED면 `updated_at`, EXPIRED면 `least(updated_at, expires_at)`, HOLDING이면 `expires_at`(lazy 재선점 때문에 now()를 쓰면 안 됨). 즉시 해제되는 버스트에서도 오버셀을 놓치지 않는다 | 해당 좌석 수 / 없음 | app (integrity) | 0 (NAIVE는 ≥1이어야 재현 성공) |
+| `oversell_overlap_pairs` | 위 정의로 겹친 예약 쌍의 수. 좌석 하나를 때리는 버스트에서는 좌석 수가 최대 1이라 쌍 수로 강도를 본다 | 없음 | app (integrity) | 0 |
+| `burst_oversell_occurred` | 같은 좌석에 100 VU가 hold→즉시 release를 반복하는 버스트(`load/k6/bench-m1-burst.js`)의 `oversell_overlap_pairs` (괄호 안은 좌석 수) | 없음 | app, k6 | NAIVE ≥ 1, 나머지 0 |
 | `hold_p99_ms` | `POST /showtimes/{id}/holds` 응답 시간 p99. 성공·실패 응답 모두 포함, 네트워크 오류 제외 | 없음 | k6 `http_req_duration{name:hold}` | 200 이하 |
 | `hold_throughput_rps` | 초당 hold 성공 응답 수. peak 구간(20:00~20:05) 평균 | 성공 응답 수 / 초 | k6 | 보고만 |
 | `hold_success_rate` | hold 요청 중 201 비율 | 201 응답 / 전체 hold 요청 | k6 | 보고만 (좌석 수로 상한 결정됨) |
 | `hold_conflict_rate` | 좌석 충돌로 거부된 비율. 오류 코드 `SEAT_TAKEN`만 센다(활성 예약 중복 `ACTIVE_RESERVATION_EXISTS`, `ILLEGAL_TRANSITION`은 제외) | `SEAT_TAKEN` 응답 / 전체 hold 요청 | k6 | 보고만 |
-| `expire_lag_s` | `expires_at`부터 janitor가 예약을 EXPIRED로 쓴 시각까지 지연 p99 (좌석은 파생 상태라 `expires_at`에 즉시 AVAILABLE이 되지만, 이벤트와 Redis 키 정리는 janitor가 한다) | 없음 | app (janitor 로그) | 60 이하 |
+| `expire_lag_s` | `expires_at`부터 janitor가 예약을 EXPIRED로 쓴 시각까지 지연 p99 (좌석은 파생 상태라 `expires_at`에 즉시 AVAILABLE이 되지만, 이벤트와 Redis 키 정리는 janitor가 한다). 실행 종료 시점의 잔여는 `expire_backlog_max_s` | 없음 | app (janitor 로그, integrity) | 60 이하 |
 | `illegal_transition_count` | 허용되지 않은 상태 전이 요청으로 409를 반환한 수 | 없음 | app | 보고만 (봇 시나리오 주입량과 비교) |
 | `strategy` | 이번 실행의 락 전략 (`NAIVE`·`FOR_UPDATE`·`SKIP_LOCKED`·`CONDITIONAL_UPDATE`·`REDIS_LUA`) | 차원 | 시나리오 | 리포트 표의 행 |
 

@@ -26,7 +26,7 @@ docker run --rm -i --network host grafana/k6 run - < load/k6/smoke.js
 - `docs/requirements.md` — 요구사항 v1: 도메인 고정값(좌석 수·가격·TTL), 주간 운영 일정, 사용자 스토리와 수용 기준, 비기능 목표, 봇 시나리오 파라미터
 - `docs/glossary.md` — 용어집: 한글·코드 식별자·정의, 쓰지 않는 말
 - `docs/metrics.md` — 지표 정의: 단계별 지표의 수식·분모·측정 지점·목표
-- `docs/adr/` — ADR-0001 1차 범위 축소, ADR-0002 합성 데이터 한계, ADR-0003 JPA·JDBC 경계, ADR-0004 상태 전이 규칙
+- `docs/adr/` — ADR-0001 1차 범위 축소, ADR-0002 합성 데이터 한계, ADR-0003 JPA·JDBC 경계, ADR-0004 상태 전이 규칙, ADR-0005 좌석 재고 행과 락 전략
 - `docs/reports/` — 주간 오픈런 리포트 아카이브 (`_template.md`)
 - `docs/research/01-reservation-queue-concurrency.md` — 예약·대기열·좌석 선점 동시성 오픈소스/레퍼런스
 - `docs/research/02-payment-commerce.md` — 결제·커머스: [payment-consistency-lab](https://github.com/jaehafe/payment-consistency-lab) 위에 무엇을 쌓을 것인가

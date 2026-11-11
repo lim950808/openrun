@@ -15,3 +15,7 @@ node_modules/
 *.log
 out/
 !.env.example
+
+# Load test outputs (CI uploads them as artifacts)
+load/results/*
+!load/results/.gitkeep

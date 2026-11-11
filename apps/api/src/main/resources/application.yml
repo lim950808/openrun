@@ -5,6 +5,8 @@ spring:
     url: ${OPENRUN_DB_URL:jdbc:postgresql://localhost:5432/openrun}
     username: ${OPENRUN_DB_USER:openrun}
     password: ${OPENRUN_DB_PASSWORD:openrun}
+    hikari:
+      maximum-pool-size: ${OPENRUN_DB_POOL:32}
   data:
     redis:
       host: ${OPENRUN_REDIS_HOST:localhost}
@@ -13,14 +15,24 @@ spring:
     open-in-view: false
     hibernate:
       ddl-auto: validate
+    properties:
+      hibernate.jdbc.batch_size: 100
   flyway:
     enabled: true
 
 server:
   port: 8080
 
+openrun:
+  hold:
+    strategy: ${OPENRUN_HOLD_STRATEGY:CONDITIONAL_UPDATE}
+    allow-strategy-override: ${OPENRUN_HOLD_ALLOW_OVERRIDE:false}
+    ttl: ${OPENRUN_HOLD_TTL:PT12M}
+    naive-delay-ms: ${OPENRUN_HOLD_NAIVE_DELAY_MS:0}
+    janitor-delay-ms: ${OPENRUN_HOLD_JANITOR_DELAY_MS:5000}
+
 management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,metrics

@@ -20,7 +20,8 @@
 
 | 한글 | 코드 식별자 | 정의 |
 |---|---|---|
-| 선점 | `Hold`, `seat_hold` | 회차의 특정 좌석을 한 회원이 TTL 동안 독점하는 것. 좌석 단위 |
+| 선점 | `Hold`, `seat_hold` | 회차의 특정 좌석을 한 회원이 TTL 동안 독점하는 것. 좌석 단위. `seat_hold` 테이블은 회차 생성 시 좌석 수만큼 미리 채우는 재고 행이고, 선점은 그 행을 조건부로 차지하는 것(ADR-0005) |
+| 예약 좌석 | `reservation_seat` | 예약이 잡았다고 믿는 좌석과 가격 스냅샷. 오버셀 검증의 기준 테이블 |
 | 선점 만료 시각 | `expires_at` | hold 생성 + 12분. 연장 없음 |
 | 예약 | `Reservation`, `reservation` | 한 회원의 hold 묶음(1~2석)과 그 상태. 결제의 대상. `Booking`은 모듈명(`domain-booking`)에만 쓰고 애그리거트 이름으로는 쓰지 않는다 |
 | 예약 상태 | `ReservationStatus` | `HOLDING` · `PAYING` · `CONFIRMED` · `EXPIRED` · `CANCELLED` |
@@ -31,7 +32,8 @@
 | 해제 | `release` | 좌석이 `AVAILABLE`로 돌아가는 것. 좌석 상태는 파생이므로 예약이 EXPIRED·CANCELLED가 되면 자동으로 해제된다. 결제 실패는 hold를 유지하므로 해제가 아니다 |
 | 활성 예약 | `active reservation` | 상태가 HOLDING 또는 PAYING인 예약. 1인 1건 제한의 기준. 오버셀 판정은 여기에 CONFIRMED를 더한 집합으로 한다 |
 | 재고 | `Inventory` | 선점 가능한 자원의 추상화. 1차 구현체는 지정석(`SeatInventory`) |
-| 락 전략 | `LockStrategy` | M1 비교 대상: `NAIVE` · `FOR_UPDATE` · `SKIP_LOCKED` · `CONDITIONAL_UPDATE` · `REDIS_LUA` |
+| 락 전략 | `LockStrategy` | M1 비교 대상: `NAIVE` · `FOR_UPDATE` · `SKIP_LOCKED` · `CONDITIONAL_UPDATE` · `REDIS_LUA`. 요청 헤더 `X-Hold-Strategy`는 벤치마크 설정(`openrun.hold.allow-strategy-override`)에서만 유효 |
+| 재고 정합성 점검 | `integrity` | `GET /api/admin/showtimes/{id}/integrity`. `oversell_count` 등 실행 종료 후 검증 지표 |
 | 오버셀 | `oversell` | 같은 회차·좌석에 활성 예약이 2건 이상인 상태 |
 
 ## 대기열 (`domain-booking`, Redis)

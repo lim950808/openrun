@@ -8,7 +8,9 @@ dependencies {
     api(libs.boot.starter.jdbc)
     api(libs.boot.starter.data.redis)
     api(libs.bucket4j.core)
+    implementation(libs.shedlock.spring)
     implementation(project(":modules:support"))
+    implementation(project(":modules:outbox"))
 
     testImplementation(libs.junit.jupiter)
     testImplementation(libs.assertj.core)

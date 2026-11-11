@@ -6,10 +6,15 @@
 #   arrival.unit                     : rate unit; hold requests per second
 #   arrival.stages[]                 : ordered ramp stages; duration_seconds = stage length, target_rps = rate at stage end
 #   queue.enabled                    : whether requests go through the waiting queue (false: M1 measures hold only)
+#   app.hold_ttl                     : hold TTL the API runs with during the bench (ISO-8601 duration)
+#   app.janitor_delay_ms             : janitor sweep interval the API runs with during the bench
+#   app.allow_strategy_override      : the API must honor X-Hold-Strategy
 #   lock_strategy                    : NAIVE | FOR_UPDATE | SKIP_LOCKED | CONDITIONAL_UPDATE | REDIS_LUA (set per run)
 #   runs                             : consecutive runs per strategy; report the median with min and max
 #   abandon_probability              : per-member probability of leaving the queue (unused while queue is disabled)
 #   seat_select_seconds              : distribution of seat selection time
+#   seat_choice.hot_ratio            : share of holds aimed at the hot pool
+#   seat_choice.hot_pool             : number of best seats (lowest VIP seat ids) in the hot pool
 #   payment_abandon_probability      : per-member probability of leaving after entering the payment widget
 #   payment_seconds                  : distribution of payment duration
 #   polling_interval_seconds         : bot polling interval
@@ -38,6 +43,15 @@ arrival:
 queue:
   enabled: false
 
+# Bench-only app settings. A short TTL makes seats recycle during the run, so the benchmark keeps measuring
+# successful holds instead of the SEAT_TAKEN path after the 1,500 seats sell out. The bench runner must start
+# the API with the matching env:
+#   OPENRUN_HOLD_TTL=PT10S OPENRUN_HOLD_JANITOR_DELAY_MS=1000 OPENRUN_HOLD_ALLOW_OVERRIDE=true
+app:
+  hold_ttl: PT10S
+  janitor_delay_ms: 1000
+  allow_strategy_override: true
+
 lock_strategy: NAIVE
 runs: 3
 
@@ -47,6 +61,10 @@ seat_select_seconds:
   type: uniform
   min: 10
   max: 90
+
+# 80% of holds target the 50 'best' seats (first VIP rows, lowest seat ids within VIP); the rest pick uniformly
+# from all seats. Models front-row competition.
+seat_choice: { hot_ratio: 0.8, hot_pool: 50 }
 
 payment_abandon_probability: 0.12
 

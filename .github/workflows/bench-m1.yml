@@ -1,0 +1,91 @@
+name: bench-m1
+
+# M1 lock-strategy benchmark (docs/requirements.md §2: Saturday 10:00~13:00 KST = 01:00 UTC).
+on:
+  schedule:
+    - cron: "0 1 * * 6"
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: consecutive runs per strategy
+        default: "3"
+      peak_rps:
+        description: peak hold arrival rate
+        default: "3000"
+      duration_s:
+        description: total arrival window in seconds (scenario stages are scaled to fit)
+        default: "120"
+
+permissions:
+  contents: read
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      OPENRUN_DB_URL: jdbc:postgresql://localhost:5432/openrun
+      OPENRUN_DB_USER: openrun
+      OPENRUN_DB_PASSWORD: openrun
+      OPENRUN_REDIS_HOST: localhost
+      OPENRUN_REDIS_PORT: "6379"
+      # Must match the `app:` block of load/scenarios/bench-m1-hold.yaml.
+      OPENRUN_HOLD_ALLOW_OVERRIDE: "true"
+      OPENRUN_HOLD_TTL: PT10S
+      OPENRUN_HOLD_JANITOR_DELAY_MS: "1000"
+      BASE_URL: http://localhost:8080
+      # schedule runs carry no inputs; fall back to the documented defaults.
+      RUNS: ${{ inputs.runs || '3' }}
+      PEAK_RPS: ${{ inputs.peak_rps || '3000' }}
+      DURATION_S: ${{ inputs.duration_s || '120' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Start compose core
+        run: docker compose -f infra/compose/compose.yaml --profile core up -d --wait
+      - name: Start API
+        run: |
+          ./gradlew :apps:api:bootRun --no-daemon > bootRun.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:8080/actuator/health > /dev/null; then
+              echo "API is up"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "API did not become healthy"
+          cat bootRun.log
+          exit 1
+      - uses: grafana/setup-k6-action@v1
+      - name: Capture runner spec
+        run: |
+          mkdir -p load/results
+          {
+            echo "nproc=$(nproc)"
+            free -g | head -2
+            echo "kernel=$(uname -r)"
+          } > load/results/runner-spec.txt
+          cat load/results/runner-spec.txt
+      - name: Benchmark
+        run: load/bench-m1.sh "$RUNS" all
+      - name: Report
+        run: |
+          python3 load/report/m1_report.py \
+            --runner-spec "$(tr '\n' ' ' < load/results/runner-spec.txt)" \
+            --out load/results/m1-report.md
+          cat load/results/m1-report.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Copy API log
+        if: always()
+        run: cp bootRun.log load/results/ || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bench-m1-results
+          path: load/results/
+      - name: Stop compose core
+        if: always()
+        run: docker compose -f infra/compose/compose.yaml --profile core down -v

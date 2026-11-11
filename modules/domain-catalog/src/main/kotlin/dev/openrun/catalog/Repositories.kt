@@ -2,9 +2,13 @@ package dev.openrun.catalog
 
 import org.springframework.data.jpa.repository.JpaRepository
 
-interface VenueRepository : JpaRepository<Venue, Long>
+interface VenueRepository : JpaRepository<Venue, Long> {
+    fun findFirstByNameOrderByIdAsc(name: String): Venue?
+}
 
-interface ShowRepository : JpaRepository<Show, Long>
+interface ShowRepository : JpaRepository<Show, Long> {
+    fun findFirstByVenueIdOrderByIdAsc(venueId: Long): Show?
+}
 
 interface ShowtimeRepository : JpaRepository<Showtime, Long>
 

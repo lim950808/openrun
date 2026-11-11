@@ -11,6 +11,8 @@
 #   abandon_probability              : per-member probability of leaving the queue; decided at entry,
 #                                      leave time uniform within the member's own wait time
 #   seat_select_seconds              : distribution of seat selection time
+#   seat_choice.hot_ratio            : share of holds aimed at the hot pool
+#   seat_choice.hot_pool             : number of best seats (lowest VIP seat ids) in the hot pool
 #   payment_abandon_probability      : per-member probability of leaving after entering the payment widget
 #   payment_seconds                  : distribution of payment duration
 #   polling_interval_seconds         : bot queue polling interval
@@ -51,6 +53,10 @@ seat_select_seconds:
   type: uniform
   min: 10
   max: 90
+
+# 80% of holds target the 50 'best' seats (first VIP rows, lowest seat ids within VIP); the rest pick uniformly
+# from all seats. Models front-row competition.
+seat_choice: { hot_ratio: 0.8, hot_pool: 50 }
 
 payment_abandon_probability: 0.12
 
