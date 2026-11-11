@@ -1,0 +1,16 @@
+name: weekly-openrun
+
+# Saturday 20:00 KST = Saturday 11:00 UTC (docs/requirements.md §2).
+on:
+  schedule:
+    - cron: "0 11 * * 6"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  openrun:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "weekly open run: implemented in M4"

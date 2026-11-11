@@ -1,0 +1,41 @@
+[versions]
+kotlin = "2.4.21"
+spring-boot = "4.1.2"
+shedlock = "7.11.0"
+bucket4j = "8.22.0"
+archunit = "1.5.1"
+
+[libraries]
+# Versions below without `version.ref` are managed by the Spring Boot BOM (platform).
+boot-starter-webmvc = { module = "org.springframework.boot:spring-boot-starter-webmvc" }
+boot-starter-actuator = { module = "org.springframework.boot:spring-boot-starter-actuator" }
+boot-starter-validation = { module = "org.springframework.boot:spring-boot-starter-validation" }
+boot-starter-data-jpa = { module = "org.springframework.boot:spring-boot-starter-data-jpa" }
+boot-starter-data-redis = { module = "org.springframework.boot:spring-boot-starter-data-redis" }
+boot-starter-jdbc = { module = "org.springframework.boot:spring-boot-starter-jdbc" }
+boot-starter-flyway = { module = "org.springframework.boot:spring-boot-starter-flyway" }
+boot-starter-webmvc-test = { module = "org.springframework.boot:spring-boot-starter-webmvc-test" }
+boot-starter-data-jpa-test = { module = "org.springframework.boot:spring-boot-starter-data-jpa-test" }
+boot-starter-jdbc-test = { module = "org.springframework.boot:spring-boot-starter-jdbc-test" }
+boot-starter-data-redis-test = { module = "org.springframework.boot:spring-boot-starter-data-redis-test" }
+boot-starter-flyway-test = { module = "org.springframework.boot:spring-boot-starter-flyway-test" }
+boot-testcontainers = { module = "org.springframework.boot:spring-boot-testcontainers" }
+flyway-database-postgresql = { module = "org.flywaydb:flyway-database-postgresql" }
+postgresql = { module = "org.postgresql:postgresql" }
+jackson-module-kotlin = { module = "tools.jackson.module:jackson-module-kotlin" }
+kotlin-reflect = { module = "org.jetbrains.kotlin:kotlin-reflect" }
+testcontainers = { module = "org.testcontainers:testcontainers" }
+testcontainers-postgresql = { module = "org.testcontainers:testcontainers-postgresql" }
+junit-jupiter = { module = "org.junit.jupiter:junit-jupiter" }
+junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
+assertj-core = { module = "org.assertj:assertj-core" }
+shedlock-spring = { module = "net.javacrumbs.shedlock:shedlock-spring", version.ref = "shedlock" }
+shedlock-provider-jdbc-template = { module = "net.javacrumbs.shedlock:shedlock-provider-jdbc-template", version.ref = "shedlock" }
+bucket4j-core = { module = "com.bucket4j:bucket4j_jdk17-core", version.ref = "bucket4j" }
+archunit = { module = "com.tngtech.archunit:archunit", version.ref = "archunit" }
+
+[plugins]
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+kotlin-spring = { id = "org.jetbrains.kotlin.plugin.spring", version.ref = "kotlin" }
+kotlin-jpa = { id = "org.jetbrains.kotlin.plugin.jpa", version.ref = "kotlin" }
+spring-boot = { id = "org.springframework.boot", version.ref = "spring-boot" }

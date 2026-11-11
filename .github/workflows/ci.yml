@@ -1,0 +1,64 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v4
+      # Unit tests + Testcontainers Boot 4 gate smoke + ArchUnit boundary rules.
+      - run: ./gradlew build --no-daemon
+
+  k6-smoke:
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      OPENRUN_DB_URL: jdbc:postgresql://localhost:5432/openrun
+      OPENRUN_DB_USER: openrun
+      OPENRUN_DB_PASSWORD: openrun
+      OPENRUN_REDIS_HOST: localhost
+      OPENRUN_REDIS_PORT: "6379"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Start compose core
+        run: docker compose -f infra/compose/compose.yaml --profile core up -d --wait
+      - name: Start API
+        run: |
+          ./gradlew :apps:api:bootRun --no-daemon > bootRun.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:8080/actuator/health > /dev/null; then
+              echo "API is up"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "API did not become healthy"
+          cat bootRun.log
+          exit 1
+      - uses: grafana/setup-k6-action@v1
+      - name: k6 smoke
+        run: k6 run load/k6/smoke.js
+      - name: Show API log
+        if: failure()
+        run: cat bootRun.log || true
+      - name: Stop compose core
+        if: always()
+        run: docker compose -f infra/compose/compose.yaml --profile core down -v

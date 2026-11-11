@@ -1,0 +1,26 @@
+spring:
+  application:
+    name: openrun-api
+  datasource:
+    url: ${OPENRUN_DB_URL:jdbc:postgresql://localhost:5432/openrun}
+    username: ${OPENRUN_DB_USER:openrun}
+    password: ${OPENRUN_DB_PASSWORD:openrun}
+  data:
+    redis:
+      host: ${OPENRUN_REDIS_HOST:localhost}
+      port: ${OPENRUN_REDIS_PORT:6379}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+
+server:
+  port: 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

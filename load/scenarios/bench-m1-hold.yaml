@@ -1,0 +1,67 @@
+# schema (docs/requirements.md §5, behaviour distributions in ADR-0002)
+#   scenario                         : scenario id, used in report headers
+#   description                      : one-line purpose
+#   virtual_users                    : number of distinct synthetic members (pre-created ids)
+#   arrival.executor                 : k6 executor; always ramping-arrival-rate (open model)
+#   arrival.unit                     : rate unit; hold requests per second
+#   arrival.stages[]                 : ordered ramp stages; duration_seconds = stage length, target_rps = rate at stage end
+#   queue.enabled                    : whether requests go through the waiting queue (false: M1 measures hold only)
+#   lock_strategy                    : NAIVE | FOR_UPDATE | SKIP_LOCKED | CONDITIONAL_UPDATE | REDIS_LUA (set per run)
+#   runs                             : consecutive runs per strategy; report the median with min and max
+#   abandon_probability              : per-member probability of leaving the queue (unused while queue is disabled)
+#   seat_select_seconds              : distribution of seat selection time
+#   payment_abandon_probability      : per-member probability of leaving after entering the payment widget
+#   payment_seconds                  : distribution of payment duration
+#   polling_interval_seconds         : bot polling interval
+#   macro_ratio                      : share of members that are macros
+#   macro.seat_select_seconds        : macro seat selection time (fixed)
+#   macro.polling_interval_seconds   : macro polling interval (fixed)
+#   refresh_storm_interval_seconds   : polling interval in the refresh-storm variant
+# Distributions: {type: uniform, min, max} | {type: normal, mean, sd} | {type: fixed, value}
+
+scenario: bench-m1-hold
+description: M1 seat hold benchmark without the queue, peak 3000 rps held for 2 minutes
+
+virtual_users: 10000
+
+arrival:
+  executor: ramping-arrival-rate
+  unit: rps
+  stages:
+    - duration_seconds: 10
+      target_rps: 3000
+    - duration_seconds: 120
+      target_rps: 3000
+    - duration_seconds: 10
+      target_rps: 0
+
+queue:
+  enabled: false
+
+lock_strategy: NAIVE
+runs: 3
+
+abandon_probability: 0.15
+
+seat_select_seconds:
+  type: uniform
+  min: 10
+  max: 90
+
+payment_abandon_probability: 0.12
+
+payment_seconds:
+  type: normal
+  mean: 60
+  sd: 20
+
+polling_interval_seconds: 2
+
+macro_ratio: 0.05
+macro:
+  seat_select_seconds:
+    type: fixed
+    value: 1
+  polling_interval_seconds: 0.2
+
+refresh_storm_interval_seconds: 0.2

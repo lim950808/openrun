@@ -1,0 +1,41 @@
+plugins {
+    alias(libs.plugins.kotlin.jvm)
+    alias(libs.plugins.kotlin.spring)
+    alias(libs.plugins.spring.boot)
+}
+
+dependencies {
+    implementation(platform(org.springframework.boot.gradle.plugin.SpringBootPlugin.BOM_COORDINATES))
+    implementation(project(":modules:support"))
+    implementation(project(":modules:schema"))
+    implementation(project(":modules:domain-catalog"))
+    implementation(project(":modules:domain-booking"))
+    implementation(project(":modules:domain-payment"))
+    implementation(project(":modules:outbox"))
+
+    implementation(libs.boot.starter.webmvc)
+    implementation(libs.boot.starter.actuator)
+    implementation(libs.boot.starter.validation)
+    implementation(libs.boot.starter.data.jpa)
+    implementation(libs.boot.starter.data.redis)
+    implementation(libs.boot.starter.jdbc)
+    implementation(libs.boot.starter.flyway)
+    implementation(libs.flyway.database.postgresql)
+    implementation(libs.jackson.module.kotlin)
+    implementation(libs.kotlin.reflect)
+    implementation(libs.shedlock.spring)
+    implementation(libs.shedlock.provider.jdbc.template)
+    runtimeOnly(libs.postgresql)
+
+    testImplementation(platform(org.springframework.boot.gradle.plugin.SpringBootPlugin.BOM_COORDINATES))
+    testImplementation(libs.boot.starter.webmvc.test)
+    testImplementation(libs.boot.starter.data.jpa.test)
+    testImplementation(libs.boot.starter.jdbc.test)
+    testImplementation(libs.boot.starter.data.redis.test)
+    testImplementation(libs.boot.starter.flyway.test)
+    testImplementation(libs.boot.testcontainers)
+    testImplementation(libs.testcontainers)
+    testImplementation(libs.testcontainers.postgresql)
+    testImplementation(libs.archunit)
+    testRuntimeOnly(libs.junit.platform.launcher)
+}

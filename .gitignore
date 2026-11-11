@@ -9,3 +9,9 @@ node_modules/
 .env.*
 .omc/
 !.omc/skills/
+
+# Kotlin / runtime
+.kotlin/
+*.log
+out/
+!.env.example
