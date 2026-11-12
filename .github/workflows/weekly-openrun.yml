@@ -13,4 +13,4 @@ jobs:
   openrun:
     runs-on: ubuntu-latest
     steps:
-      - run: echo "weekly open run: implemented in M4"
+      - run: 'echo "weekly open run: implemented in M4"'
