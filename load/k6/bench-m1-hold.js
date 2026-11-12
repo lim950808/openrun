@@ -32,6 +32,17 @@ const stages = yamlStages.map((s) => ({
   target: Math.round(s.target_rps * rpsScale),
 }));
 const PEAK_RPS = Math.round(yamlPeak * rpsScale);
+// Iterations the stage ramps ask for (each stage is linear from the previous target): compare with hold_requests.
+function plannedIterations(stageList) {
+  let prev = 0;
+  let total = 0;
+  for (const s of stageList) {
+    const seconds = parseInt(s.duration, 10) / 1000;
+    total += seconds * (prev + s.target) / 2;
+    prev = s.target;
+  }
+  return total;
+}
 const DURATION_S = yamlTotalS * timeScale;
 const HOLD_TTL = scenario.app && scenario.app.hold_ttl ? scenario.app.hold_ttl : null;
 
@@ -174,6 +185,10 @@ export function handleSummary(data) {
     holding_reservations: gauge(data, 'holding_reservations'),
     expire_backlog_max_s: gauge(data, 'expire_backlog_max_s'),
     http_req_failed: data.metrics.http_req_failed ? data.metrics.http_req_failed.values.rate : null,
+    // Iterations k6 could not start at the planned arrival rate (VU cap or saturated generator): nonzero means the
+    // runner, not the API, bounded hold_attempt_rps, and hold_p99_ms must be read with that in mind.
+    dropped_iterations: data.metrics.dropped_iterations ? data.metrics.dropped_iterations.values.count : 0,
+    planned_attempt_rps: plannedIterations(stages) / DURATION_S,
   };
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   return {
