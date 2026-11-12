@@ -32,4 +32,16 @@ internal object ReservationEvents {
         eventType = "ReservationExpired",
         payload = """{"reservationId":$reservationId,"showtimeId":$showtimeId,"seatIds":$seatIds,"expiresAt":"$expiresAt"}""",
     )
+
+    /**
+     * PAYING expiry chain's payment side (ADR-0007 §5 last paragraph), same payload shape as domain-payment's
+     * PaymentEvents (the janitor writes both rows in one statement, so the event is built here).
+     */
+    fun paymentFailed(paymentId: Long, reservationId: Long, orderId: String, attempt: Int, amount: Int) = OutboxEvent(
+        aggregateType = "payment",
+        aggregateId = paymentId.toString(),
+        eventType = "PaymentFailed",
+        payload = """{"paymentId":$paymentId,"reservationId":$reservationId,"orderId":"$orderId","attempt":$attempt,""" +
+            """"amount":$amount,"from":"REQUESTED","failureCode":"HOLD_EXPIRED"}""",
+    )
 }

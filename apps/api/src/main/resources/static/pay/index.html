@@ -1,0 +1,72 @@
+<!doctype html>
+<!--
+  M3-1 live Toss demo page (ADR-0007 §4). Minimal on purpose: M4's Next.js app replaces it.
+  Usage: /pay/index.html?reservationId=..&memberId=..  (API started with OPENRUN_PAYMENT_PG=toss and Toss test keys)
+  Flow: POST /api/reservations/{id}/payments → Toss payment window (SDK v2) → successUrl (this page with
+  paymentKey, orderId, amount) → POST /api/payments/confirm → render the payment view.
+-->
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>openrun 결제</title>
+  <script src="https://js.tosspayments.com/v2/standard"></script>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 480px; margin: 2rem auto; padding: 0 16px; }
+    pre { background: #f4f4f4; padding: 1rem; overflow-x: auto; }
+    button { font-size: 1rem; padding: .6rem 1.2rem; }
+  </style>
+</head>
+<body>
+  <h1>openrun 결제</h1>
+  <p id="info">불러오는 중…</p>
+  <button id="pay" hidden>카드 결제</button>
+  <pre id="out"></pre>
+  <script>
+    const q = new URLSearchParams(location.search);
+    const out = (v) => { document.getElementById('out').textContent = typeof v === 'string' ? v : JSON.stringify(v, null, 2); };
+    const info = (t) => { document.getElementById('info').textContent = t; };
+    // reservationId/memberId survive the redirect through sessionStorage (successUrl only carries Toss's params).
+    const reservationId = q.get('reservationId') || sessionStorage.getItem('reservationId');
+    const memberId = q.get('memberId') || sessionStorage.getItem('memberId');
+    const headers = { 'Content-Type': 'application/json', 'X-Member-Id': memberId };
+
+    async function confirmPayment() {
+      info('결제 승인 중…');
+      const res = await fetch('/api/payments/confirm', {
+        method: 'POST', headers,
+        body: JSON.stringify({ orderId: q.get('orderId'), paymentKey: q.get('paymentKey'), amount: Number(q.get('amount')) }),
+      });
+      info(res.status === 202 ? '승인 확인 중 (UNKNOWN). 잠시 뒤 예약 상태를 다시 조회하세요.' : `승인 응답 ${res.status}`);
+      out(await res.json());
+    }
+
+    async function startPayment() {
+      const config = await (await fetch('/api/payments/config')).json();
+      if (config.pg !== 'toss' || !config.clientKey) { info('pg=toss와 클라이언트 키가 필요합니다.'); out(config); return; }
+      const res = await fetch(`/api/reservations/${reservationId}/payments`, { method: 'POST', headers });
+      const start = await res.json();
+      if (!res.ok) { info(`결제 시작 실패 ${res.status}`); out(start); return; }
+      sessionStorage.setItem('reservationId', reservationId);
+      sessionStorage.setItem('memberId', memberId);
+      info(`주문 ${start.orderId} · ${start.amount.toLocaleString()}원`);
+      const payment = TossPayments(config.clientKey).payment({ customerKey: start.customerKey });
+      const button = document.getElementById('pay');
+      button.hidden = false;
+      button.onclick = () => payment.requestPayment({
+        method: 'CARD',
+        amount: { currency: 'KRW', value: start.amount },
+        orderId: start.orderId,
+        orderName: `openrun 예약 ${reservationId}`,
+        successUrl: `${location.origin}/pay/index.html`,
+        failUrl: `${location.origin}/pay/index.html?failed=1`,
+      });
+    }
+
+    if (q.get('failed')) { info(`결제 실패: ${q.get('code') || ''}`); out(q.get('message') || ''); }
+    else if (q.get('paymentKey')) confirmPayment();
+    else if (reservationId && memberId) startPayment();
+    else info('?reservationId=..&memberId=.. 가 필요합니다.');
+  </script>
+</body>
+</html>

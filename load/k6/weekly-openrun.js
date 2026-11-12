@@ -1,6 +1,7 @@
 // M2 weekly open run bot (docs/requirements.md §2, M2-1~M2-4; parameters from the scenario yaml, ADR-0002).
-// One iteration = one member's journey: enter the queue -> poll (may abandon) -> admitted -> select seats -> hold.
-// No payment yet (M3).
+// One iteration = one member's journey: enter the queue -> poll (may abandon) -> admitted -> select seats -> hold
+// -> (may abandon payment) -> pay (M3, ADR-0007): POST /payments, Fake PG authorization with a fault drawn from
+// `fake_pg.fault_mix`, POST /payments/confirm. The API must run with OPENRUN_PAYMENT_PG=fake.
 //
 // Arrival: the yaml stage shape (`at` wall clock, `target_rps`) is scaled in time to DURATION_S and in height so the
 // whole run brings MEMBERS members. Member journeys are long, so the yaml's absolute rps (which includes polling)
@@ -15,6 +16,7 @@
 //   ADMISSIONS_PER_SECOND  default yaml queue.admissions_per_second; set to the API's value (expected wait estimate)
 //   SCENARIO               repo-relative yaml path, default load/scenarios/weekly-default.yaml
 //   RESULTS_DIR            default load/results
+//   AMOUNT_MISMATCH_RATE   default 0.01; share of payments that first send a confirm with amount + 1 (expects 400)
 //
 //   k6 run -e BASE_URL=http://localhost:8080 -e SHOWTIME_ID=1 load/k6/weekly-openrun.js
 import http from 'k6/http';
@@ -54,6 +56,9 @@ const stages = points.slice(1).map((p, i) => ({
 const startRate = Math.round(points[0].rps * heightScale);
 
 const SEAT_CHOICE = scenario.seat_choice || { hot_ratio: 0, hot_pool: 0 };
+const FAKE_PG = scenario.fake_pg || { fault_mix: { NONE: 1 }, delay_seconds: 2 };
+const FAULTS = Object.keys(FAKE_PG.fault_mix);
+const AMOUNT_MISMATCH_RATE = Number(__ENV.AMOUNT_MISMATCH_RATE ?? 0.01);
 
 export const options = {
   scenarios: {
@@ -64,8 +69,8 @@ export const options = {
       preAllocatedVUs: Math.min(MEMBERS, 500),
       maxVUs: MEMBERS,
       stages,
-      // Journeys that started late still get to hold (seat selection can take up to 90 s).
-      gracefulStop: '120s',
+      // Journeys that started late still get to hold and pay (seat selection up to 90 s, payment ~60 s).
+      gracefulStop: '240s',
     },
   },
   summaryTrendStats: ['avg', 'min', 'med', 'max', 'p(90)', 'p(95)', 'p(99)'],
@@ -75,11 +80,12 @@ export const options = {
     // tagged sub-metrics in the summary.
     'http_req_duration{name:queue_me}': ['p(99)<100'],
     'http_req_duration{name:hold}': ['p(99)<200'],
+    'http_req_duration{name:payment_confirm}': ['max>=0'],
     rank_drift_count: ['count==0'],
   },
 };
 
-http.setResponseCallback(http.expectedStatuses(200, 201, 409));
+http.setResponseCallback(http.expectedStatuses(200, 201, 202, 409));
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
 const entered = new Counter('queue_entered');
@@ -94,6 +100,16 @@ const unauthorized = new Counter('unauthorized');
 const holdError = new Counter('hold_error');
 const queueError = new Counter('queue_error');
 const waitSeconds = new Trend('queue_wait_s');
+const paymentAbandoned = new Counter('payment_abandoned');
+const paymentStarted = new Counter('payment_started');
+const paymentError = new Counter('payment_error');
+const confirmOk = new Counter('confirm_ok');
+const confirmUnknown = new Counter('confirm_unknown');
+const confirmDeclined = new Counter('confirm_declined');
+const confirmError = new Counter('confirm_error');
+const amountMismatchInjected = new Counter('amount_mismatch_injected');
+const amountMismatchRejected = new Counter('amount_mismatch_rejected');
+const faultInjected = Object.fromEntries(FAULTS.map((f) => [f, new Counter(`fault_${f}`)]));
 
 function sample(dist) {
   if (dist.type === 'fixed') return dist.value;
@@ -104,6 +120,62 @@ function sample(dist) {
     return Math.max(0, dist.mean + z * dist.sd);
   }
   throw new Error(`unknown distribution ${dist.type}`);
+}
+
+function pickFault() {
+  let r = Math.random() * FAULTS.reduce((acc, f) => acc + FAKE_PG.fault_mix[f], 0);
+  for (const f of FAULTS) {
+    r -= FAKE_PG.fault_mix[f];
+    if (r < 0) return f;
+  }
+  return FAULTS[FAULTS.length - 1];
+}
+
+function confirm(orderId, paymentKey, amount, headers, params) {
+  return http.post(`${BASE_URL}/api/payments/confirm`, JSON.stringify({ orderId, paymentKey, amount }), Object.assign({ headers }, params));
+}
+
+/** Payment step (M3). Payment APIs check the reservation owner, not the access token (requirements §1). */
+function pay(reservationId, memberId) {
+  if (Math.random() < scenario.payment_abandon_probability) {
+    paymentAbandoned.add(1);
+    return;
+  }
+  sleep(sample(scenario.payment_seconds));
+  const headers = Object.assign({ 'X-Member-Id': String(memberId) }, JSON_HEADERS);
+  const start = http.post(`${BASE_URL}/api/reservations/${reservationId}/payments`, null, { headers, tags: { name: 'payment_start' } });
+  if (start.status !== 200) {
+    paymentError.add(1);
+    return;
+  }
+  paymentStarted.add(1);
+  const orderId = start.json('orderId');
+  const amount = start.json('amount');
+  const fault = pickFault();
+  faultInjected[fault].add(1);
+  const auth = http.post(
+    `${BASE_URL}/api/fake-pg/payments`,
+    JSON.stringify({ orderId, amount, fault, delaySeconds: FAKE_PG.delay_seconds }),
+    { headers: JSON_HEADERS, tags: { name: 'fake_pg' } },
+  );
+  if (auth.status !== 200) {
+    paymentError.add(1);
+    return;
+  }
+  const paymentKey = auth.json('paymentKey');
+  if (Math.random() < AMOUNT_MISMATCH_RATE) {
+    amountMismatchInjected.add(1);
+    const tampered = confirm(orderId, paymentKey, amount + 1, headers, {
+      tags: { name: 'payment_confirm_tampered' },
+      responseCallback: http.expectedStatuses(400),
+    });
+    if (tampered.status === 400) amountMismatchRejected.add(1);
+  }
+  const res = confirm(orderId, paymentKey, amount, headers, { tags: { name: 'payment_confirm' } });
+  if (res.status === 202) confirmUnknown.add(1);
+  else if (res.status === 200 && res.json('status') === 'CONFIRMED') confirmOk.add(1);
+  else if (res.status === 200 && res.json('status') === 'FAILED') confirmDeclined.add(1);
+  else confirmError.add(1);
 }
 
 function enter(showtimeId, memberId, tag) {
@@ -225,8 +297,10 @@ export default function (data) {
     JSON.stringify({ seatIds: pickSeats(data) }),
     { headers: Object.assign({ Authorization: `Bearer ${token}` }, JSON_HEADERS), tags: { name: 'hold' } },
   );
-  if (hold.status === 201) holdSuccess.add(1);
-  else if (hold.status === 401) unauthorized.add(1);
+  if (hold.status === 201) {
+    holdSuccess.add(1);
+    pay(hold.json('reservationId'), memberId);
+  } else if (hold.status === 401) unauthorized.add(1);
   else if (hold.status === 409 && hold.json('code') === 'SEAT_TAKEN') seatTaken.add(1);
   else if (hold.status === 409 && hold.json('code') === 'ACTIVE_RESERVATION_EXISTS') activeExists.add(1);
   else holdError.add(1);
@@ -265,6 +339,17 @@ export function handleSummary(data) {
     unauthorized: count(data, 'unauthorized'),
     hold_error: count(data, 'hold_error'),
     queue_error: count(data, 'queue_error'),
+    payment_abandoned: count(data, 'payment_abandoned'),
+    payment_started: count(data, 'payment_started'),
+    payment_error: count(data, 'payment_error'),
+    confirm_ok: count(data, 'confirm_ok'),
+    confirm_unknown: count(data, 'confirm_unknown'),
+    confirm_declined: count(data, 'confirm_declined'),
+    confirm_error: count(data, 'confirm_error'),
+    amount_mismatch_injected: count(data, 'amount_mismatch_injected'),
+    amount_mismatch_rejected: count(data, 'amount_mismatch_rejected'),
+    faults_injected: Object.fromEntries(FAULTS.map((f) => [f, count(data, `fault_${f}`)])),
+    confirm_p99_ms: p(data, 'http_req_duration{name:payment_confirm}', 'p(99)'),
     http_req_failed: data.metrics.http_req_failed ? data.metrics.http_req_failed.values.rate : null,
   };
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');

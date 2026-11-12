@@ -20,6 +20,12 @@
 #   macro.seat_select_seconds        : macro seat selection time (fixed)
 #   macro.polling_interval_seconds   : macro polling interval (fixed)
 #   refresh_storm_interval_seconds   : polling interval in the refresh-storm variant
+#   fake_pg.fault_mix                : share of payments per Fake PG fault (ADR-0007 §2); each payment carries one
+#                                      value (NONE · DECLINE · TIMEOUT · TIMEOUT_THEN_INQUIRY_DOWN · DELAY), so the
+#                                      report compares unknown_count etc. with the injected counts
+#   fake_pg.delay_seconds            : confirm response delay for DELAY
+#   fake_pg.webhooks                 : Fake PG posts a signed DONE webhook after each approval (API setting
+#                                      OPENRUN_FAKE_PG_WEBHOOKS; recorded here for the report)
 # Distributions: {type: uniform, min, max} | {type: normal, mean, sd} | {type: fixed, value}
 # Only per-member probabilities (abandon_probability, payment_abandon_probability, macro_ratio) are
 # ground truth for the 2차 reconstruction check; process parameters are not.
@@ -75,3 +81,8 @@ macro:
   polling_interval_seconds: 0.2
 
 refresh_storm_interval_seconds: 0.2
+
+fake_pg:
+  fault_mix: { NONE: 0.95, TIMEOUT: 0.03, DELAY: 0.01, DECLINE: 0.01 }
+  delay_seconds: 2
+  webhooks: true

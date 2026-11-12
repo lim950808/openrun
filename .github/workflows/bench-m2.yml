@@ -1,6 +1,6 @@
 name: bench-m2
 
-# M2 waiting-queue benchmark (refresh storm + weekly open run bot), Saturday 01:30 UTC after bench-m1.
+# M2+M3 weekly benchmark (refresh storm + weekly open run bot with Fake PG payments), Saturday 01:30 UTC after bench-m1.
 on:
   schedule:
     - cron: "30 1 * * 6"
@@ -37,6 +37,9 @@ jobs:
       OPENRUN_QUEUE_ABANDON_AFTER: PT30S
       OPENRUN_QUEUE_REQUIRE_ACCESS_TOKEN: "true"
       ADMISSIONS_PER_SECOND: "100"
+      # Payment (ADR-0007 §6): Fake PG with its signed DONE webhooks.
+      OPENRUN_PAYMENT_PG: fake
+      OPENRUN_FAKE_PG_WEBHOOKS: "true"
       BASE_URL: http://localhost:8080
       # schedule runs carry no inputs; fall back to the documented defaults.
       VUS: ${{ inputs.vus || '1000' }}
@@ -50,12 +53,15 @@ jobs:
           distribution: temurin
           java-version: "21"
       - uses: gradle/actions/setup-gradle@v4
-      - name: Generate token secret
-        # A fresh signing key per run (ADR-0006 §3); never stored.
+      - name: Generate token and webhook secrets
+        # Fresh signing keys per run (ADR-0006 §3, ADR-0007 §6); never stored.
         run: |
           secret="$(openssl rand -hex 32)"
           echo "::add-mask::$secret"
           echo "OPENRUN_TOKEN_SECRET=$secret" >> "$GITHUB_ENV"
+          webhook="$(openssl rand -hex 32)"
+          echo "::add-mask::$webhook"
+          echo "OPENRUN_TOSS_WEBHOOK_SECRET=$webhook" >> "$GITHUB_ENV"
       - name: Start compose core
         run: docker compose -f infra/compose/compose.yaml --profile core up -d --wait
       - name: Start API

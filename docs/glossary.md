@@ -60,7 +60,7 @@
 |---|---|---|
 | 결제 | `Payment`, `payment` | 예약 1건에 대한 결제 시도 1건. 실패 후 재시도는 새 `attempt` |
 | 결제 상태 | `PaymentStatus` | `REQUESTED` · `CONFIRMING` · `CONFIRMED` · `FAILED` · `UNKNOWN` · `CANCELLED` |
-| 주문번호 | `orderId` | 토스에 넘기는 식별자. `{reservationId}-{attempt}`로 attempt마다 다르다. 웹훅은 이 값으로 attempt 행을 찾는다. `Order`라는 애그리거트는 만들지 않는다 |
+| 주문번호 | `orderId` | 토스에 넘기는 식별자. `or-{reservationId}-{attempt}`로 attempt마다 다르다(토스 제약 6~64자 때문에 접두사를 붙인다). 웹훅은 이 값으로 attempt 행을 찾는다. `Order`라는 애그리거트는 만들지 않는다 |
 | 결제키 | `paymentKey` | 토스가 발급하는 결제 식별자 |
 | 승인 | `confirm` (결제 문맥) | 토스 `/v1/payments/confirm` 호출. 이 호출 전까지 돈은 빠지지 않는다 |
 | 승인창 | `confirm window` | 결제위젯 결제 후 confirm 가능한 10분 |

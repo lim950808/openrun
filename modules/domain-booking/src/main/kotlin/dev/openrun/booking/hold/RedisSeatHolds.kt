@@ -38,6 +38,20 @@ class RedisSeatHolds(
         Long::class.java,
     )
 
+    /** ARGV[2] empty → PERSIST (no TTL), else PEXPIREAT ARGV[2]. Only keys still owned by ARGV[1]. */
+    private val pinScript = DefaultRedisScript(
+        """
+        local n = 0
+        for i, k in ipairs(KEYS) do
+          if redis.call('GET', k) == ARGV[1] then
+            if ARGV[2] == '' then n = n + redis.call('PERSIST', k) else n = n + redis.call('PEXPIREAT', k, ARGV[2]) end
+          end
+        end
+        return n
+        """.trimIndent(),
+        Long::class.java,
+    )
+
     fun keys(showtimeId: Long, seatIds: List<Long>): List<String> = seatIds.map { "hold:{$showtimeId}:$it" }
 
     /** All-or-nothing SET for every key; false when any key already exists. Timed as phase `redis_script`. */
@@ -49,6 +63,13 @@ class RedisSeatHolds(
             HoldService.recordPhase(registry, LockStrategy.REDIS_LUA, HoldService.PHASE_REDIS_SCRIPT, started)
         }
     }
+
+    /**
+     * PAYING keeps the seat past `expires_at` (ADR-0004 §1): [expireAtMillis] null removes the TTL, a value restores
+     * it when the reservation goes back to HOLDING. Harmless when the strategy never wrote the keys.
+     */
+    fun pin(showtimeId: Long, seatIds: List<Long>, reservationId: Long, expireAtMillis: Long?): Long =
+        if (seatIds.isEmpty()) 0 else redis.execute(pinScript, keys(showtimeId, seatIds), reservationId.toString(), expireAtMillis?.toString() ?: "") ?: 0
 
     /** Deletes only keys still owned by [reservationId]; harmless when the strategy never wrote them. */
     fun release(showtimeId: Long, seatIds: List<Long>, reservationId: Long): Long =

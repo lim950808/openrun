@@ -1,15 +1,18 @@
 #!/usr/bin/env bash
-# M2 waiting-queue benchmark: (1) refresh storm (load/k6/queue-storm.js) and (2) the weekly open run bot
-# (load/k6/weekly-openrun.js), each on a fresh showtime that opens OPEN_DELAY_S after creation (entry is already
-# open, admission starts then). After each run the showtime's queue-integrity is saved, then the report prints.
+# M2+M3 weekly benchmark: (1) refresh storm (load/k6/queue-storm.js) and (2) the weekly open run bot
+# (load/k6/weekly-openrun.js, queue -> hold -> payment through the Fake PG), each on a fresh showtime that opens
+# OPEN_DELAY_S after creation (entry is already open, admission starts then). After each run the showtime's
+# queue-integrity (and, for the weekly run, payment-integrity) is saved, then the report prints.
 #
 #   usage: load/bench-m2.sh
 #   env:   BASE_URL (default http://localhost:8080), OPEN_DELAY_S (default 20)
 #          VUS (default 1000), STORM_DURATION_S (default 30)                     (storm)
 #          DURATION_S (default 120), MEMBERS (default 2000), ADMISSIONS_PER_SECOND (default 100)   (weekly)
 #
-# Start the API with the queue on (default) and the matching admission rate, e.g.
-#   OPENRUN_QUEUE_ADMISSIONS_PER_SECOND=100 ./gradlew :apps:api:bootRun
+#        SETTLE_S (default 20): wait after the weekly run so the payment janitor (5 s tick) settles UNKNOWN payments
+#
+# Start the API with the queue on (default), the matching admission rate and the Fake PG, e.g.
+#   OPENRUN_QUEUE_ADMISSIONS_PER_SECOND=100 OPENRUN_PAYMENT_PG=fake ./gradlew :apps:api:bootRun
 # Uses a native k6 when on PATH, else the grafana/k6 docker image with the repo mounted at /work.
 set -euo pipefail
 
@@ -22,6 +25,7 @@ STORM_DURATION_S="${STORM_DURATION_S:-30}"
 DURATION_S="${DURATION_S:-120}"
 MEMBERS="${MEMBERS:-2000}"
 ADMISSIONS_PER_SECOND="${ADMISSIONS_PER_SECOND:-100}"
+SETTLE_S="${SETTLE_S:-20}"
 mkdir -p load/results
 
 echo "reminder: the API must run with the queue on and OPENRUN_QUEUE_ADMISSIONS_PER_SECOND=$ADMISSIONS_PER_SECOND"
@@ -75,5 +79,8 @@ echo "=== weekly showtime $WEEKLY_ID: $MEMBERS members over ${DURATION_S}s ($K6_
 run_k6 load/k6/weekly-openrun.js -e "SHOWTIME_ID=$WEEKLY_ID" -e "DURATION_S=$DURATION_S" -e "MEMBERS=$MEMBERS" \
   -e "ADMISSIONS_PER_SECOND=$ADMISSIONS_PER_SECOND"
 curl -fsS "$BASE_URL/api/admin/showtimes/$WEEKLY_ID/queue-integrity" > "load/results/m2-integrity-weekly-$STAMP.json"
+echo "=== waiting ${SETTLE_S}s for the payment janitor"
+sleep "$SETTLE_S"
+curl -fsS "$BASE_URL/api/admin/showtimes/$WEEKLY_ID/payment-integrity" > "load/results/m3-payment-integrity-weekly-$STAMP.json"
 
 python3 load/report/m2_report.py

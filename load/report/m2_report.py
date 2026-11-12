@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Summarize the latest M2 run in load/results into one markdown table (docs/metrics.md "M2 대기열" names).
+"""Summarize the latest M2+M3 weekly run in load/results (docs/metrics.md "M2 대기열" and "M3 결제" names).
 
-Reads the newest m2-storm-*.json / m2-weekly-*.json (k6 handleSummary exports) and
-m2-integrity-storm-*.json / m2-integrity-weekly-*.json (GET /api/admin/showtimes/{id}/queue-integrity).
+Reads the newest m2-storm-*.json / m2-weekly-*.json (k6 handleSummary exports),
+m2-integrity-storm-*.json / m2-integrity-weekly-*.json (GET /api/admin/showtimes/{id}/queue-integrity) and
+m3-payment-integrity-weekly-*.json (GET /api/admin/showtimes/{id}/payment-integrity).
 Missing data prints n/a.
 
 usage: load/report/m2_report.py [--results load/results] [--label TEXT] [--out path.md]
@@ -43,7 +44,8 @@ def main():
     weekly = latest(args.results, "m2-weekly-*.json")
     istorm = latest(args.results, "m2-integrity-storm-*.json")
     iweekly = latest(args.results, "m2-integrity-weekly-*.json")
-    if not (storm or weekly or istorm or iweekly):
+    pay = latest(args.results, "m3-payment-integrity-weekly-*.json")
+    if not (storm or weekly or istorm or iweekly or pay):
         print(f"no m2 results in {args.results}", file=sys.stderr)
         return 1
 
@@ -77,6 +79,36 @@ def main():
         "|---|---|---|---|",
     ]
     lines += [f"| `{name}` | {a} | {b} | {target} |" if " " not in name else f"| {name} | {a} | {b} | {target} |" for name, a, b, target in rows]
+    faults = weekly.get("faults_injected") or {}
+    injected = ", ".join(f"{k} {v:,}" for k, v in faults.items()) or "n/a"
+    m3 = [
+        ("payment started / abandoned / error", " / ".join(fmt(weekly.get(k)) for k in ("payment_started", "payment_abandoned", "payment_error")), "보고만"),
+        ("confirm ok / unknown(202) / declined / error",
+         " / ".join(fmt(weekly.get(k)) for k in ("confirm_ok", "confirm_unknown", "confirm_declined", "confirm_error")), "error 0"),
+        ("confirm_p99_ms", fmt(weekly.get("confirm_p99_ms")), "보고만 (DELAY 포함)"),
+        ("hold_to_confirm_rate", fmt(pay.get("hold_to_confirm_rate"), 1, True), "포기율로 역산한 기대값과 비교"),
+        ("unknown_count", fmt(pay.get("unknown_count")), f"주입 TIMEOUT {fmt(faults.get('TIMEOUT'))}"),
+        ("unknown_dwell_p99_s", fmt(pay.get("unknown_dwell_p99_s")), "≤ 60"),
+        ("confirm_expire_race_occurred", fmt(pay.get("confirm_expire_race_occurred")), "보고만"),
+        ("confirm_expire_race_remaining", fmt(pay.get("confirm_expire_race_remaining")), "0"),
+        ("compensation_failed_count", fmt(pay.get("compensation_failed_count")), "0"),
+        ("amount_mismatch_count", fmt(pay.get("amount_mismatch_count")), f"주입 {fmt(weekly.get('amount_mismatch_injected'))}"),
+        ("idempotent_replay_count", fmt(pay.get("idempotent_replay_count")), "보고만"),
+        ("webhook_ack_p99_ms", fmt(pay.get("webhook_ack_p99_ms")), "≤ 1,000"),
+        ("webhook_apply_lag_p99_s", fmt(pay.get("webhook_apply_lag_p99_s")), "≤ 5"),
+        ("webhook_duplicate_count", fmt(pay.get("webhook_duplicate_count")), "보고만"),
+        ("webhook_stale_count", fmt(pay.get("webhook_stale_count")), "보고만"),
+        ("cancel_success_rate", fmt(pay.get("cancel_success_rate"), 1, True), "100%"),
+        ("state_event_mismatch_count", fmt(pay.get("state_event_mismatch_count")), "0"),
+    ]
+    lines += [
+        "",
+        f"M3 결제 (주간 오픈런 봇, Fake PG 주입: {injected})",
+        "",
+        "| 지표 | 값 | 목표 |",
+        "|---|---|---|",
+    ]
+    lines += [f"| `{name}` | {v} | {target} |" if " " not in name else f"| {name} | {v} | {target} |" for name, v, target in m3]
     text = "\n".join(lines) + "\n"
     print(text)
     if args.out:

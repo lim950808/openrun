@@ -43,17 +43,17 @@
 
 | 지표 | 정의 | 분자 / 분모 | 측정 지점 | 목표 |
 |---|---|---|---|---|
-| `hold_to_confirm_rate` | hold 성공한 예약 중 한 번이라도 CONFIRMED에 도달한 비율 (이후 취소돼도 포함) | CONFIRMED 도달 예약 수 / HOLDING에 도달한 예약 수 | app, mart | 시나리오 포기율로 역산한 기대값과 비교 |
-| `confirm_expire_race_occurred` | payment CONFIRMED 전이 시점에 예약이 이미 EXPIRED였던 건수. 이벤트(`PaymentConfirmed`와 당시 예약 상태)로 센다 | 없음 | app (이벤트), mart | 보고만 (Fake PG 주입량과 비교) |
+| `hold_to_confirm_rate` | hold 성공한 예약 중 한 번이라도 CONFIRMED에 도달한 비율 (이후 취소돼도 포함. app은 CONFIRMED 또는 결제 CANCELLED인 CANCELLED 예약으로 센다) | CONFIRMED 도달 예약 수 / HOLDING에 도달한 예약 수(= 회차의 전체 예약) | app, mart | 시나리오 포기율로 역산한 기대값과 비교 |
+| `confirm_expire_race_occurred` | payment CONFIRMED 전이 시점에 예약이 이미 EXPIRED였던 건수. app은 `payment_compensation` 행 수(`CompensationRequested` 이벤트와 같은 트랜잭션이라 1:1), mart는 이벤트로 센다 | 없음 | app (`GET /api/admin/showtimes/{id}/payment-integrity`), mart | 보고만 (Fake PG 주입량과 비교) |
 | `confirm_expire_race_remaining` | 검증 시점에 payment CONFIRMED이면서 예약 EXPIRED인 건수. `compensation_failed_count`에 포함된 건은 제외 | 없음 | app 검증 쿼리 | 0 |
 | `compensation_failed_count` | 보상 취소를 3회 이상 재시도해도 실패해 수동 처리로 넘긴 건수 | 없음 | app | 0, 발생 시 리포트 "미해결" |
-| `unknown_dwell_p99_s` | payment가 UNKNOWN에 머문 시간 p99 | 없음 | app | 60 이하 |
+| `unknown_dwell_p99_s` | payment가 UNKNOWN에 머문 시간 p99 (`unknown_resolved_at − unknown_since`, 아직 UNKNOWN이면 now) | 없음 | app | 60 이하 |
 | `unknown_count` | UNKNOWN을 거친 결제 수 | 없음 | app | 보고만 (Fake PG 주입량과 비교) |
 | `webhook_ack_p99_ms` | 웹훅 수신부터 200 응답까지 p99 | 없음 | app | 1,000 이하 |
 | `webhook_apply_lag_p99_s` | 웹훅 inbox 저장부터 상태 적용까지 p99 | 없음 | app | 5 이하 |
 | `webhook_duplicate_count` | eventId 중복으로 폐기한 웹훅 수 | 없음 | app | 보고만 |
-| `webhook_stale_count` | 과거 상태라 폐기한 웹훅 수 | 없음 | app | 보고만 |
-| `amount_mismatch_count` | 서버 금액 검증에 실패한 confirm 요청 수 | 없음 | app | 주입량과 동일 |
+| `webhook_stale_count` | 과거 상태라 폐기한 웹훅 수. Fake PG의 DONE 웹훅은 보통 confirm 커밋 뒤에 와서 STALE이 되므로 주간 오픈런에서는 승인 수와 비슷하다 | 없음 | app | 보고만 |
+| `amount_mismatch_count` | 서버 금액 검증에 실패한 confirm 요청 수. Micrometer 카운터라 프로세스 전역(회차 태그 없음). `idempotent_replay_count` · `cancel_success_rate` · `webhook_ack_p99_ms`도 같다 | 없음 | app | 주입량과 동일 |
 | `idempotent_replay_count` | 같은 Idempotency-Key로 재시도되어 토스 호출 없이 응답한 수 | 없음 | app | 보고만 |
 | `cancel_success_rate` | 취소 요청 중 payment CANCELLED와 좌석 복귀가 모두 된 비율 | 성공 / 요청 | app | 100% |
 

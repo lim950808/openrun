@@ -44,6 +44,7 @@ docs/reports             주간 리포트 아카이브. `_template.md`를 복사
 ./gradlew :apps:api:test --tests '*ArchitectureTest*'
 docker compose -f infra/compose/compose.yaml --profile core up -d --wait
 ./gradlew :apps:api:bootRun                       # localhost:8080, /api/ping, /actuator/health
+OPENRUN_PAYMENT_PG=toss ./gradlew :apps:api:bootRun  # 토스 실연동(.env에 테스트 키), /pay/index.html?reservationId=..&memberId=..
 docker run --rm -i --network host grafana/k6 run - < load/k6/smoke.js   # k6 미설치 시
 # 대기열: POST /api/showtimes/{id}/queue → GET /api/showtimes/{id}/queue/me (Bearer 대기 토큰) → 입장 토큰으로 좌석 API
 load/bench-m2.sh                                  # M2 벤치(API 실행 중). M1 벤치는 OPENRUN_QUEUE_REQUIRE_ACCESS_TOKEN=false

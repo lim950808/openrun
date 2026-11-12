@@ -23,7 +23,7 @@
 | 예약 CONFIRMED | `SOLD` |
 | 그 외 (예약 없음, EXPIRED, CANCELLED, HOLDING인데 만료) | `AVAILABLE` |
 
-PAYING은 만료 시각을 보지 않는다. 결제가 진행 중인 좌석은 janitor가 예약을 EXPIRED로 바꾸기 전까지 다른 회원이 잡을 수 없다. 이것이 confirm 중 만료 문제를 닫는 첫 번째 규칙이다.
+PAYING은 만료 시각을 보지 않는다. 결제가 진행 중인 좌석은 janitor가 예약을 EXPIRED로 바꾸기 전까지 다른 회원이 잡을 수 없다. 이것이 confirm 중 만료 문제를 닫는 첫 번째 규칙이다. 구현 수단(ADR-0007 §5): 모든 락 전략이 `seat_hold.expires_at < now()`를 "비어 있음"으로 보므로, HOLDING → PAYING 전이가 그 예약의 `seat_hold.expires_at`을 `infinity`로 고정하고(REDIS_LUA는 키 TTL 제거), PAYING → HOLDING은 예약의 `expires_at`으로 되돌리며 → EXPIRED · CANCELLED는 행을 비운다.
 
 파생 상태로 정의하는 이유: M1은 락 전략 5종을 비교하므로 "진실의 원천"이 전략마다 다르다(DB 행 vs Redis 키). 단 모든 전략은 hold 성공 시 `seat_hold` 행을 남긴다. Redis Lua 전략도 Redis 키는 경합 판정에만 쓰고 결과는 DB에 적는다. 그래야 검증 쿼리가 전략과 무관하게 같다. 기본 전략은 M1 결과로 ADR-0005에서 정한다.
 
@@ -52,7 +52,7 @@ janitor는 payment가 CONFIRMING·UNKNOWN(5분 미만)·CONFIRMED인 PAYING 예�
 
 | from | to | 트리거 | 가드 | 부수효과 |
 |---|---|---|---|---|
-| 없음 | REQUESTED | 예약 PAYING 전이 | 예약에 활성 결제(REQUESTED·CONFIRMING·UNKNOWN·CONFIRMED) 없음 | `attempt` = 이전 최대 + 1 · `orderId = {reservationId}-{attempt}` · outbox `PaymentRequested` |
+| 없음 | REQUESTED | 예약 PAYING 전이 | 예약에 활성 결제(REQUESTED·CONFIRMING·UNKNOWN·CONFIRMED) 없음 | `attempt` = 이전 최대 + 1 · `orderId = or-{reservationId}-{attempt}` · outbox `PaymentRequested` |
 | REQUESTED | CONFIRMING | `/payments/confirm` 수신 | 서버 amount = 요청 amount · orderId 일치 · 예약 PAYING · `expires_at > now` | 토스 confirm 호출, `Idempotency-Key = {reservationId}:{attempt}` · outbox `PaymentConfirming` |
 | REQUESTED | FAILED | failUrl 콜백 · 예약 만료 연쇄 | | 예약이 PAYING이고 미만료면 HOLDING으로 · outbox `PaymentFailed` |
 | CONFIRMING | CONFIRMED | 토스 200 (DONE) 또는 DONE 웹훅 | | paymentKey · approvedAt 저장 · 예약 PAYING → CONFIRMED · outbox `PaymentConfirmed` |

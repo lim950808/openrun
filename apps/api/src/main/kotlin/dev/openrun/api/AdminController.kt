@@ -8,6 +8,7 @@ import dev.openrun.catalog.ShowRepository
 import dev.openrun.catalog.Showtime
 import dev.openrun.catalog.ShowtimeRepository
 import dev.openrun.catalog.VenueRepository
+import dev.openrun.payment.PaymentIntegrityQuery
 import io.micrometer.core.instrument.MeterRegistry
 import org.springframework.http.HttpStatus
 import org.springframework.web.bind.annotation.GetMapping
@@ -17,6 +18,7 @@ import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestController
 import java.time.Instant
+import java.util.concurrent.TimeUnit
 
 data class CreateShowtimeRequest(val startsAt: Instant, val openAt: Instant)
 
@@ -32,6 +34,7 @@ class AdminController(
     private val inventory: ShowtimeInventoryJdbc,
     private val integrity: IntegrityQuery,
     private val queueIntegrity: QueueIntegrityQuery,
+    private val paymentIntegrity: PaymentIntegrityQuery,
     private val registry: MeterRegistry,
 ) {
     /**
@@ -94,6 +97,35 @@ class AdminController(
             "admission_delay_p99_s" to q.admissionDelayP99Seconds,
             "admission_rate_actual" to q.admissionRateActual,
             "unauthorized_seat_calls" to unauthorized,
+        )
+    }
+
+    /**
+     * M3 verification numbers with docs/metrics.md names (ADR-0007 §4). Counter-backed values
+     * (`amount_mismatch_count`, `idempotent_replay_count`, `cancel_success_rate`) and `webhook_ack_p99_ms` are
+     * process-wide, not per showtime.
+     */
+    @GetMapping("/api/admin/showtimes/{showtimeId}/payment-integrity")
+    fun paymentIntegrity(@PathVariable showtimeId: Long): Map<String, Any?> {
+        val p = paymentIntegrity.check(showtimeId)
+        val ack = registry.find(WebhookController.ACK_METRIC).timer()
+        return linkedMapOf(
+            "hold_to_confirm_rate" to p.holdToConfirmRate,
+            "confirm_expire_race_occurred" to p.confirmExpireRaceOccurred,
+            "confirm_expire_race_remaining" to p.confirmExpireRaceRemaining,
+            "compensation_failed_count" to p.compensationFailedCount,
+            "unknown_count" to p.unknownCount,
+            "unknown_dwell_p99_s" to p.unknownDwellP99Seconds,
+            "webhook_ack_p99_ms" to ack?.takeIf { it.count() > 0 }?.let { t ->
+                t.takeSnapshot().percentileValues().firstOrNull { it.percentile() == 0.99 }?.value(TimeUnit.MILLISECONDS)
+            },
+            "webhook_apply_lag_p99_s" to p.webhookApplyLagP99Seconds,
+            "webhook_duplicate_count" to p.webhookDuplicateCount,
+            "webhook_stale_count" to p.webhookStaleCount,
+            "amount_mismatch_count" to p.amountMismatchCount,
+            "idempotent_replay_count" to p.idempotentReplayCount,
+            "cancel_success_rate" to p.cancelSuccessRate,
+            "state_event_mismatch_count" to p.stateEventMismatchCount,
         )
     }
 }

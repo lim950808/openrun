@@ -1,6 +1,9 @@
 spring:
   application:
     name: openrun-api
+  config:
+    # Local secrets (gitignored). bootRun runs in apps/api, so the repo-root file is two levels up.
+    import: optional:file:.env[.properties],optional:file:../../.env[.properties]
   datasource:
     url: ${OPENRUN_DB_URL:jdbc:postgresql://localhost:5432/openrun}
     username: ${OPENRUN_DB_USER:openrun}
@@ -39,6 +42,19 @@ openrun:
     tick-ms: ${OPENRUN_QUEUE_TICK_MS:1000}
     require-access-token: ${OPENRUN_QUEUE_REQUIRE_ACCESS_TOKEN:true}
     token-secret: ${OPENRUN_TOKEN_SECRET:dev-only-not-a-secret-openrun-local-token-key}
+  # ADR-0007 §6. Keys come from the environment or the gitignored .env (see .env.example), never from the repo.
+  payment:
+    pg: ${OPENRUN_PAYMENT_PG:fake}
+    confirming-timeout: ${OPENRUN_PAYMENT_CONFIRMING_TIMEOUT:PT30S}
+    unknown-release-after: ${OPENRUN_PAYMENT_UNKNOWN_RELEASE_AFTER:PT5M}
+    janitor-delay-ms: ${OPENRUN_PAYMENT_JANITOR_DELAY_MS:5000}
+    toss:
+      secret-key: ${OPENRUN_TOSS_SECRET_KEY:}
+      client-key: ${OPENRUN_TOSS_CLIENT_KEY:}
+      webhook-secret: ${OPENRUN_TOSS_WEBHOOK_SECRET:dev-only-not-a-secret-openrun-webhook-key}
+    fake-pg:
+      webhooks: ${OPENRUN_FAKE_PG_WEBHOOKS:true}
+      webhook-url: ${OPENRUN_FAKE_PG_WEBHOOK_URL:http://localhost:${server.port}/api/webhooks/toss}
 
 management:
   endpoints:

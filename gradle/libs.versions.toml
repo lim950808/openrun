@@ -24,6 +24,9 @@ boot-testcontainers = { module = "org.springframework.boot:spring-boot-testconta
 flyway-database-postgresql = { module = "org.flywaydb:flyway-database-postgresql" }
 postgresql = { module = "org.postgresql:postgresql" }
 jackson-module-kotlin = { module = "tools.jackson.module:jackson-module-kotlin" }
+jackson-databind = { module = "tools.jackson.core:jackson-databind" }
+spring-web = { module = "org.springframework:spring-web" }
+spring-test = { module = "org.springframework:spring-test" }
 kotlin-reflect = { module = "org.jetbrains.kotlin:kotlin-reflect" }
 testcontainers = { module = "org.testcontainers:testcontainers" }
 testcontainers-postgresql = { module = "org.testcontainers:testcontainers-postgresql" }

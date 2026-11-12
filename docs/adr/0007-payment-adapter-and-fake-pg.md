@@ -8,7 +8,7 @@
 
 ADR-0004가 "무엇이 어떤 조건에서 어디로 가는가"를 정했다. 이 ADR은 그 전이표를 실행하는 **바깥 경계**를 정한다. 토스 API를 어떻게 부르고 응답을 세 갈래(승인·확정 실패·미확정)로 어떻게 나누는가, 토스 없이 테스트와 주간 오픈런을 어떻게 돌리는가(Fake PG), `eventId`가 없는 `PAYMENT_STATUS_CHANGED` 웹훅을 어떻게 중복 제거하는가, janitor 세 경로(ADR-0004 §2·§3)를 어느 스케줄러가 어떤 SQL로 도는가.
 
-토스 사양(2026-11-12 문서 기준): 승인 `POST /v1/payments/confirm {paymentKey, orderId, amount}`, 조회 `GET /v1/payments/orders/{orderId}`, 취소 `POST /v1/payments/{paymentKey}/cancel {cancelReason}`. 인증은 `Authorization: Basic base64("{secretKey}:")`. `Idempotency-Key`는 POST 전용, 300자, 15일, 동시 중복은 `409 IDEMPOTENT_REQUEST_PROCESSING`, 재전송은 첫 응답 그대로. 결제 인증 후 10분 안에 confirm하지 않으면 `NOT_FOUND_PAYMENT_SESSION`. 웹훅은 10초 안에 200, 실패 시 7회 재전송(1·2·4·16·64·256·1024분), 순서 보장 없음, 서명 헤더 `tosspayments-webhook-signature`(`v1:` 뒤 base64 값들, HMAC-SHA256 over `{payload}:{tosspayments-webhook-transmission-time}`), `PAYMENT_STATUS_CHANGED` 본문에는 `eventId`가 없다.
+토스 사양(2026-11-12 문서 기준): 승인 `POST /v1/payments/confirm {paymentKey, orderId, amount}`, 조회 `GET /v1/payments/orders/{orderId}`, 취소 `POST /v1/payments/{paymentKey}/cancel {cancelReason}`. 인증은 `Authorization: Basic base64("{secretKey}:")`. `Idempotency-Key`는 POST 전용, 300자, 15일, 동시 중복은 `409 IDEMPOTENT_REQUEST_PROCESSING`, 재전송은 첫 응답 그대로. 결제 인증 후 10분 안에 confirm하지 않으면 `NOT_FOUND_PAYMENT_SESSION`. 웹훅은 10초 안에 200, 실패 시 7회 재전송(1·2·4·16·64·256·1024분), 순서 보장 없음, 서명 헤더 `tosspayments-webhook-signature`(`v1:` 뒤 base64 값들, HMAC-SHA256 over `{payload}:{tosspayments-webhook-transmission-time}`. HMAC 결과를 base64로 싸는 것으로 구현했고 실제 토스 웹훅 첫 수신 때 확인한다), `PAYMENT_STATUS_CHANGED` 본문에는 `eventId`가 없다.
 
 ## 결정
 
@@ -18,7 +18,7 @@ ADR-0004가 "무엇이 어떤 조건에서 어디로 가는가"를 정했다. �
 
 | 호출 | 결과(sealed) | 토스 매핑 |
 |---|---|---|
-| `confirm(paymentKey, orderId, amount, idempotencyKey)` | `Approved(paymentKey, approvedAt, totalAmount)` · `Declined(code, message)` · `Unknown(cause)` | 200 DONE → Approved. `REJECT_CARD_COMPANY` · `INVALID_REQUEST` · `NOT_FOUND_PAYMENT` · `NOT_FOUND_PAYMENT_SESSION` 등 4xx 확정 실패 → Declined. `ALREADY_PROCESSED_PAYMENT`(이미 승인된 결제를 다시 confirm) · `PROVIDER_ERROR` · 5xx · 타임아웃 · 연결 오류 · `409 IDEMPOTENT_REQUEST_PROCESSING` → Unknown. ALREADY_PROCESSED를 Unknown으로 두는 이유: 돈이 빠졌을 가능성이 있으므로 재조회로 확정해야지 실패로 적으면 안 된다 |
+| `confirm(paymentKey, orderId, amount, idempotencyKey)` | `Approved(paymentKey, approvedAt, totalAmount)` · `Declined(code, message)` · `Unknown(cause)` | 200 DONE → Approved. `REJECT_CARD_COMPANY` · `INVALID_REQUEST` · `NOT_FOUND_PAYMENT` · `NOT_FOUND_PAYMENT_SESSION` 등 4xx 확정 실패 → Declined. `ALREADY_PROCESSED_PAYMENT`(이미 승인된 결제를 다시 confirm) · `PROVIDER_ERROR` · `FAILED_INTERNAL_SYSTEM_PROCESSING` · 5xx · 타임아웃 · 연결 오류 · `409 IDEMPOTENT_REQUEST_PROCESSING` → Unknown. ALREADY_PROCESSED를 Unknown으로 두는 이유: 돈이 빠졌을 가능성이 있으므로 재조회로 확정해야지 실패로 적으면 안 된다 |
 | `inquire(orderId)` | `Found(status, paymentKey, approvedAt, totalAmount)` · `NotFound` · `Unknown(cause)` | `GET /v1/payments/orders/{orderId}`. 404 → NotFound(토스에 결제 자체가 없으니 FAILED로 확정) |
 | `cancel(paymentKey, reason, idempotencyKey)` | `Cancelled(canceledAt)` · `AlreadyCancelled` · `Declined(code)` · `Unknown(cause)` | `ALREADY_CANCELED_PAYMENT` → AlreadyCancelled(보상 성공으로 취급) |
 
@@ -35,25 +35,25 @@ ADR-0004가 "무엇이 어떤 조건에서 어디로 가는가"를 정했다. �
 
 고장은 확률이 아니라 **요청에 박힌 값**이다. 봇 시나리오 yaml의 `fake_pg.fault_mix`가 어떤 비율로 어떤 fault를 보낼지 정하고, 리포트는 `unknown_count` · `confirm_expire_race_occurred`를 그 주입량과 비교한다(ADR-0002의 복원 검증과 같은 구조). `TIMEOUT`은 M3-4, `DELAY`는 M3-3b, `TIMEOUT_THEN_INQUIRY_DOWN`은 M3-5의 재현 수단이다.
 
-Fake PG는 confirm이 Approved로 끝난 뒤 `fake_pg.webhooks=true`면 자기 자신의 `/api/webhooks/toss`로 서명된 `PAYMENT_STATUS_CHANGED(DONE)` 웹훅을 비동기로 보낸다. 지연·중복·역순 웹훅은 테스트가 직접 서명해서 보낸다(M3-6).
+Fake PG는 confirm이 Approved로 끝난 뒤 `openrun.payment.fake-pg.webhooks=true`(기본값)면 자기 자신의 `/api/webhooks/toss`로 서명된 `PAYMENT_STATUS_CHANGED(DONE)` 웹훅을 비동기로 보낸다. TIMEOUT 결제에는 보내지 않아 `unknown_count`가 주입량과 정확히 같다. 이 웹훅은 대개 confirm이 CONFIRMED를 커밋한 뒤 도착하므로 `STALE`로 버려지며, 그래서 주간 오픈런의 `webhook_stale_count`는 승인 수와 비슷하게 나온다. confirm 응답은 멱등키별로 캐시한다(토스와 같은 동작). 지연·중복·역순 웹훅은 테스트가 직접 서명해서 보낸다(M3-6).
 
 ### 3. 테이블
 
-`payment`(JDBC): `id` · `reservation_id` · `attempt` · `order_id`(= `{reservationId}-{attempt}`, unique) · `amount` · `status` · `payment_key` · `approved_at` · `failure_code` · `confirming_since` · `unknown_since` · `created_at` · `updated_at`. 유니크 `(reservation_id, attempt)`. 부분 유니크 인덱스로 **예약당 활성 결제(REQUESTED·CONFIRMING·UNKNOWN·CONFIRMED) 1건**(ADR-0004 불변식 3).
+`payment`(JDBC): `id` · `reservation_id` · `attempt` · `order_id`(= `or-{reservationId}-{attempt}`, unique. 토스 orderId는 6~64자라 접두사가 필요하다) · `amount` · `status` · `payment_key` · `approved_at` · `failure_code` · `confirming_since` · `unknown_since` · `unknown_resolved_at`(UNKNOWN을 벗어난 시각. `updated_at`은 뒤의 취소로 다시 움직이므로 `unknown_dwell_p99_s`는 이 컬럼으로 잰다. `unknown_since`는 지우지 않아 `unknown_count`가 "UNKNOWN을 거친 수"가 된다) · `created_at` · `updated_at`. 유니크 `(reservation_id, attempt)`. 부분 유니크 인덱스로 **예약당 활성 결제(REQUESTED·CONFIRMING·UNKNOWN·CONFIRMED) 1건**(ADR-0004 불변식 3).
 
-`payment_event_inbox`: `id` · `event_key`(unique) · `event_type` · `order_id` · `payment_key` · `pg_status` · `transmission_id` · `received_at` · `applied_at` · `outcome`(`APPLIED` · `STALE` · `DUPLICATE` · `IGNORED` · `ORPHAN`) · `payload`(jsonb). `event_key`는 본문 `eventId`가 있으면 그 값, 없으면(`PAYMENT_STATUS_CHANGED`) `sha256(eventType|orderId|status|createdAt)`. 재전송은 같은 본문이므로 같은 키가 되고, 같은 상태가 다른 `createdAt`으로 오면 다른 키지만 순위 규칙(ADR-0004 §5)이 `STALE`로 버린다. `transmission_id`는 기록만 한다(토스가 전송마다 새로 발급하므로 중복 제거에 쓰지 않는다).
+`payment_event_inbox`: `id` · `event_key`(부분 유니크: `outcome`이 `DUPLICATE`가 아닌 행끼리만. 서명이 맞는 수신은 전부 저장하고, 첫 INSERT가 `on conflict do nothing`으로 0행이면 `DUPLICATE` 행을 따로 넣는다. 그래서 `webhook_duplicate_count`는 회차별 DB 집계다) · `event_type` · `order_id` · `payment_key` · `pg_status` · `transmission_id` · `received_at` · `applied_at` · `outcome`(`APPLIED` · `STALE` · `DUPLICATE` · `IGNORED` · `ORPHAN`) · `payload`(jsonb). `event_key`는 본문 `eventId`가 있으면 그 값, 없으면(`PAYMENT_STATUS_CHANGED`) `sha256(eventType|orderId|status|createdAt)`. 재전송은 같은 본문이므로 같은 키가 되고, 같은 상태가 다른 `createdAt`으로 오면 다른 키지만 순위 규칙(ADR-0004 §5)이 `STALE`로 버린다. `transmission_id`는 기록만 한다(토스가 전송마다 새로 발급하므로 중복 제거에 쓰지 않는다).
 
-`payment_compensation`: `payment_id`(PK) · `requested_at` · `attempts` · `last_error` · `done_at`. `CompensationRequested` outbox 이벤트와 같은 트랜잭션에 행을 만든다. janitor가 이 행을 보고 취소를 부른다. 3회 실패면 `compensation_failed_count`로 넘기고 더 시도하지 않는다.
+`payment_compensation`: `payment_id`(PK) · `requested_at` · `attempts` · `last_error` · `done_at`. `CompensationRequested` outbox 이벤트와 같은 트랜잭션에 행을 만든다. `confirm_expire_race_occurred`는 이 행 수로 센다(이벤트와 1:1). janitor가 이 행을 보고 취소를 부른다. 3회 실패면 `compensation_failed_count`로 넘기고 더 시도하지 않는다.
 
 ### 4. API
 
 | 메서드 | 경로 | 인증 | 동작 |
 |---|---|---|---|
-| `POST` | `/api/reservations/{id}/payments` | 소유자(입장 토큰 또는 `X-Member-Id`) | HOLDING → PAYING + payment REQUESTED (한 트랜잭션, 조건부 UPDATE). 응답 `{orderId, amount, attempt, customerKey}`. 활성 결제가 있으면 그 값을 다시 준다(멱등). EXPIRED면 409 `ILLEGAL_TRANSITION` |
+| `POST` | `/api/reservations/{id}/payments` | 소유자(입장 토큰 또는 `X-Member-Id`) | HOLDING → PAYING + payment REQUESTED (한 트랜잭션, 조건부 UPDATE). 같은 트랜잭션에서 예약의 `seat_hold.expires_at`을 `infinity`로 고정하고 고정된 행 수가 좌석 수와 다르면 `409 HOLD_EXPIRED`로 롤백한다(ADR-0004 §1 "PAYING은 만료를 보지 않는다"의 구현). 응답 `{orderId, amount, attempt, customerKey: member-{id}}`. 활성 결제가 있으면 그 값을 다시 준다(멱등, 200). HOLDING인데 만료면 409 `HOLD_EXPIRED`, 그 밖의 상태면 409 `ILLEGAL_TRANSITION` |
 | `POST` | `/api/payments/confirm` | 소유자 | `{orderId, paymentKey, amount}`. ADR-0004 §3 REQUESTED → CONFIRMING 가드: 금액 불일치 400 `AMOUNT_MISMATCH`(`amount_mismatch_count`), orderId 없음 404, 예약이 PAYING 아님 409, hold 만료면 409 `HOLD_EXPIRED` + 만료 연쇄(REQUESTED → FAILED, PAYING → EXPIRED) 즉시 실행. 통과하면 CONFIRMING 커밋 → PG 호출 → 결과 커밋. 응답은 결제 뷰 `{status, reservationStatus, paymentKey, approvedAt}` |
-| 같은 confirm 두 번(M3-7) | | | 두 번째 요청은 REQUESTED → CONFIRMING 조건부 UPDATE가 0행이라 PG를 부르지 않고 현재 결제 뷰를 돌려준다(`idempotent_replay_count`). 첫 요청이 아직 CONFIRMING이면 `202 {status: CONFIRMING}`, 끝났으면 같은 결과. PG 쪽 멱등키 `{reservationId}:{attempt}`는 앱이 죽은 뒤 janitor가 아니라 사람이 confirm을 다시 보낼 때를 위한 2중 방어다 |
+| 같은 confirm 두 번(M3-7) | | | 두 번째 요청은 REQUESTED → CONFIRMING 조건부 UPDATE가 0행이라 PG를 부르지 않고 현재 결제 뷰를 돌려준다(`idempotent_replay_count`). 응답 코드는 상태로 정한다: CONFIRMING · UNKNOWN이면 `202`, CONFIRMED · FAILED면 `200`(거절은 `200 {status: FAILED, failureCode}`). 늦게 도착한 PG 응답은 CONFIRMING뿐 아니라 janitor가 이미 UNKNOWN으로 옮긴 뒤에도 적용한다. PG 쪽 멱등키 `{reservationId}:{attempt}`는 앱이 죽은 뒤 janitor가 아니라 사람이 confirm을 다시 보낼 때를 위한 2중 방어다 |
 | `POST` | `/api/webhooks/toss` | 서명 | 서명 검증 실패 401(저장 안 함). 통과하면 inbox INSERT(`event_key` 충돌이면 `DUPLICATE`로 기록) 후 즉시 200. 적용은 §5의 워커 |
-| `POST` | `/api/reservations/{id}/cancel` | 소유자 | CONFIRMED 예약 전액 취소. PG cancel 성공 → payment CANCELLED + 예약 CANCELLED (한 트랜잭션). 공연 시작 후면 409 |
+| `POST` | `/api/reservations/{id}/cancel` | 소유자 | CONFIRMED 예약 전액 취소. PG cancel 성공 → payment CANCELLED + 예약 CANCELLED + `seat_hold` 해제 (한 트랜잭션). 공연 시작 후면 409 `SHOW_STARTED`, PG가 거절하거나 응답이 없으면 502 `PG_CANCEL_FAILED`. 소유자가 아니면 403 `NOT_OWNER`, 없으면 404 `RESERVATION_NOT_FOUND` |
 | `GET` | `/api/reservations/{id}` | 소유자 | 예약·좌석·결제 상태 뷰. 결제 결과 화면과 confirm 폴링이 쓴다 |
 | `GET` | `/api/payments/config` | 없음 | `{pg, clientKey}`. 정적 결제 페이지가 토스 위젯을 띄울 때 쓴다 |
 | `GET` | `/api/admin/showtimes/{id}/payment-integrity` | 없음 | `hold_to_confirm_rate` · `confirm_expire_race_occurred` · `confirm_expire_race_remaining` · `compensation_failed_count` · `unknown_count` · `unknown_dwell_p99_s` · `webhook_duplicate_count` · `webhook_stale_count` · `amount_mismatch_count` · `idempotent_replay_count` · `cancel_success_rate` · `state_event_mismatch_count` |
@@ -62,14 +62,16 @@ Fake PG는 confirm이 Approved로 끝난 뒤 `fake_pg.webhooks=true`면 자기 �
 
 ### 5. 웹훅 적용 워커와 결제 janitor
 
-`PaymentJanitor`(ShedLock, 5초 틱)가 네 경로를 순서대로 돈다. 각 경로는 조건부 UPDATE이고 전이마다 outbox 이벤트를 같은 트랜잭션에 남긴다(ADR-0004 불변식 4).
+`PaymentJanitor`(ShedLock `payment-janitor`, 5초 fixedDelay. 입장 스케줄러와 달리 속도 목표가 없고 틱 겹침을 피하는 쪽이 중요하다)가 네 경로를 순서대로 돈다. 각 경로는 조건부 UPDATE이고 전이마다 outbox 이벤트를 같은 트랜잭션에 남긴다(ADR-0004 불변식 4).
 
 1. **인박스 적용.** `applied_at is null`인 inbox 행을 받은 순서로 읽어 `order_id`로 payment를 찾고(없으면 `ORPHAN`), 토스 상태 → 내부 상태 매핑과 ADR-0004 §5 두 조건으로 적용·`STALE` 판정. `READY` · `IN_PROGRESS`는 `IGNORED`.
 2. **CONFIRMING 30초 초과 → UNKNOWN.** `confirming_since < now() - 30s`. 앱이 PG 응답을 처리하다 죽은 경우다.
-3. **UNKNOWN 재조회.** `inquire(orderId)`. `Found(DONE)` → CONFIRMED(예약이 PAYING이면 CONFIRMED, EXPIRED면 `CompensationRequested` + `payment_compensation` 행). `Found(ABORTED|EXPIRED)` · `NotFound` → FAILED(예약 PAYING → HOLDING 또는 EXPIRED). `Unknown` → 그대로 두고 다음 틱. `unknown_since`가 5분을 넘으면 예약만 PAYING → EXPIRED로 풀고 결제는 UNKNOWN에 둔다(ADR-0004 §2).
+3. **UNKNOWN 재조회.** `inquire(orderId)`. `Found(DONE)` → CONFIRMED(예약이 PAYING이면 CONFIRMED, EXPIRED면 `CompensationRequested` + `payment_compensation` 행). `Found(ABORTED|EXPIRED)` · `NotFound` → FAILED(예약 PAYING → HOLDING 또는 EXPIRED). `Unknown` → 그대로 두고 다음 틱. `unknown_since`가 5분을 넘고 예약의 `expires_at <= now()`이면 예약만 PAYING → EXPIRED로 풀고 결제는 UNKNOWN에 둔다(ADR-0004 §2).
 4. **보상 취소.** `payment_compensation`에서 `done_at is null and attempts < 3`인 행에 `cancel(paymentKey, "hold expired before approval", "comp:{paymentId}")`. `Cancelled` · `AlreadyCancelled` → payment CONFIRMED → CANCELLED, `done_at`. 실패면 `attempts + 1`, `last_error`.
 
-hold 만료 janitor(`HoldExpiryJanitor`)는 M3에서 PAYING 예약도 맡는다. ADR-0004 §2의 순서대로 **먼저** `UPDATE payment SET status = 'FAILED' WHERE reservation_id = ? AND status = 'REQUESTED'`를 실행하고, 1행이면 예약을 EXPIRED로 바꾼다. 0행(CONFIRMING·UNKNOWN·CONFIRMED)이면 건드리지 않는다.
+hold 만료 janitor(`HoldExpiryJanitor`)는 M3에서 PAYING 예약도 맡는다. ADR-0004 §2의 순서대로 **먼저** payment REQUESTED → FAILED(`failure_code = HOLD_EXPIRED`)를 실행하고, 그 UPDATE가 맞춘 예약만 PAYING → EXPIRED로 바꾸고 `seat_hold`를 비운다. 데이터 변경 CTE 세 개를 묶은 한 문장이며 `PaymentFailed` · `ReservationExpired`를 남긴다. 0행(CONFIRMING·UNKNOWN·CONFIRMED)이면 건드리지 않는다.
+
+좌석 쪽: `domain-payment`는 `domain-booking`에 의존하지 않는다. REDIS_LUA 키 처리(TTL 제거·복원·삭제)는 `domain-payment`의 `SeatHoldHook` 인터페이스를 `apps/api`가 `RedisSeatHolds.pin` · `release`로 구현해 끼운다.
 
 ### 6. 비밀과 설정
 
@@ -78,12 +80,13 @@ hold 만료 janitor(`HoldExpiryJanitor`)는 M3에서 PAYING 예약도 맡는다.
 | `openrun.payment.pg` | `OPENRUN_PAYMENT_PG` | 기본 `fake`. CI·주간 오픈런은 `fake` |
 | `openrun.payment.toss.secret-key` | `OPENRUN_TOSS_SECRET_KEY` | `test_sk_…`. 레포에 넣지 않는다(CLAUDE.md 규칙 7) |
 | `openrun.payment.toss.client-key` | `OPENRUN_TOSS_CLIENT_KEY` | 정적 결제 페이지에 노출되는 공개 키 |
-| `openrun.payment.toss.webhook-secret` | `OPENRUN_TOSS_WEBHOOK_SECRET` | 웹훅 서명 키. Fake PG도 같은 키로 서명한다 |
+| `openrun.payment.toss.webhook-secret` | `OPENRUN_TOSS_WEBHOOK_SECRET` | 웹훅 서명 키. Fake PG도 같은 키로 서명한다. 로컬 기본값 있음, 러너는 난수 |
+| `openrun.payment.fake-pg.webhooks` | `OPENRUN_FAKE_PG_WEBHOOKS` | 기본 true. 테스트는 false |
 | `openrun.payment.confirming-timeout` | | PT30S |
 | `openrun.payment.unknown-release-after` | | PT5M |
 | `openrun.payment.janitor-delay-ms` | | 5000 |
 
-`apps/api`는 `spring.config.import=optional:file:.env[.properties]`로 루트 `.env`를 읽는다. `.env.example`에 키 이름만 적는다. 토스 키 없이 `pg=toss`로 띄우면 기동 시 실패한다.
+`apps/api`는 `spring.config.import`로 루트 `.env`를 읽는다(`optional:file:.env`와 `optional:file:../../.env`. bootRun의 작업 디렉터리가 `apps/api`라 둘 다 둔다). `.env.example`에 키 이름만 적는다. 토스 키 없이 `pg=toss`로 띄우면 기동 시 실패한다.
 
 ## 대안과 기각 이유
 
