@@ -45,3 +45,12 @@ management:
     web:
       exposure:
         include: health,info,metrics
+  metrics:
+    distribution:
+      # Hikari's acquire timer is process-wide (no strategy tag); a 2~3 min window covers one 120 s arrival run.
+      percentiles:
+        "[hikaricp.connections.acquire]": 0.5,0.99
+      expiry:
+        "[hikaricp.connections.acquire]": PT3M
+      buffer-length:
+        "[hikaricp.connections.acquire]": 3

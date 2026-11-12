@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # M1 lock-strategy benchmark: for each run x strategy, runs the arrival-rate bench (load/k6/bench-m1-hold.js) and
-# then the single-seat burst (load/k6/bench-m1-burst.js), then prints the report table.
+# then the single-seat burst (load/k6/bench-m1-burst.js), then prints the report tables. Around each arrival run it
+# resets and snapshots /api/admin/diagnostics/hold-phases into load/results/m1-phases-<STRATEGY>-run<N>.json.
 #
 #   usage: load/bench-m1.sh [runs=3] [strategies=all]     strategies: all | comma list, e.g. NAIVE,REDIS_LUA
 #   env:   BASE_URL (default http://localhost:8080), PEAK_RPS, DURATION_S, SCENARIO   (arrival bench)
@@ -54,7 +55,10 @@ IFS=',' read -r -a STRATEGY_LIST <<< "$STRATEGIES"
 for run in $(seq 1 "$RUNS"); do
   for strategy in "${STRATEGY_LIST[@]}"; do
     echo "=== run $run/$RUNS strategy $strategy arrival ($K6_BASE_URL)"
+    # Phase timers are cumulative per strategy: reset before the arrival run, snapshot right after it (before burst).
+    curl -sf "$BASE_URL/api/admin/diagnostics/hold-phases?strategy=$strategy&reset=true" > /dev/null
     run_k6 load/k6/bench-m1-hold.js "$strategy" ${ARRIVAL_ENV[@]+"${ARRIVAL_ENV[@]}"}
+    curl -sf "$BASE_URL/api/admin/diagnostics/hold-phases?strategy=$strategy" > "load/results/m1-phases-$strategy-run$run.json"
     echo "=== run $run/$RUNS strategy $strategy burst ($K6_BASE_URL)"
     run_k6 load/k6/bench-m1-burst.js "$strategy" "${BURST_ENV[@]}"
   done

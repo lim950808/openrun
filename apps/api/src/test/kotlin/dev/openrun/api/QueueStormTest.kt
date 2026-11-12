@@ -3,7 +3,6 @@ package dev.openrun.api
 import dev.openrun.booking.queue.AdmissionScheduler
 import dev.openrun.booking.queue.EnterOutcome
 import dev.openrun.booking.queue.QueueIntegrityQuery
-import dev.openrun.booking.queue.QueueRedis
 import dev.openrun.booking.queue.QueueService
 import dev.openrun.booking.queue.QueueStatus
 import org.assertj.core.api.Assertions.assertThat
@@ -20,7 +19,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * M2-3 refresh storm in miniature: 200 members each poll 20 times concurrently (every fifth call a re-entry, i.e. a
+ * M2-3 refresh storm in miniature: 200 members each enter and then poll 20 times concurrently (every fifth call a re-entry, i.e. a
  * page refresh) while the admission scheduler ticks. `rank_drift_count` = polls whose `ahead` grew versus the same
  * member's previous answer. Service-level, so the race is between Redis calls, not HTTP handling.
  */
@@ -31,7 +30,6 @@ class QueueStormTest @Autowired constructor(
     private val admin: AdminController,
     private val queue: QueueService,
     private val scheduler: AdmissionScheduler,
-    private val queueRedis: QueueRedis,
     private val integrity: QueueIntegrityQuery,
 ) {
     private val pool = Executors.newFixedThreadPool(20)
@@ -62,8 +60,6 @@ class QueueStormTest @Autowired constructor(
         val openAt = Instant.now().minusSeconds(1)
         val showtimeId = admin.newShowtime(openAt = openAt).showtimeId
         val memberIds = (1L..200L).map { showtimeId * 10_000 + it }
-        memberIds.forEach { queue.enter(showtimeId, it, openAt) }
-        assertThat(queueRedis.waitingCount(showtimeId)).isEqualTo(200)
 
         val ticking = AtomicBoolean(true)
         val ticker = Thread {
@@ -76,6 +72,9 @@ class QueueStormTest @Autowired constructor(
         val futures = memberIds.map { member ->
             pool.submit<List<Long?>> {
                 start.await()
+                // Enter right before polling: a member that entered long before its first poll would be abandoned
+                // (test abandon-after is 2 s) and re-enter at the back, which is by design, not rank drift.
+                queue.enter(showtimeId, member, openAt)
                 (0 until 20).map { i -> observe(showtimeId, member, openAt, refresh = i % 5 == 4) }
             }
         }

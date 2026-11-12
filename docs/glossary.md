@@ -72,7 +72,12 @@
 | 청소부 | `janitor` | 세 경로를 맡는 스케줄러: hold 만료 처리, `CONFIRMING` 30초 초과 → `UNKNOWN` 전환과 재조회, 승인·만료 레이스 보상 취소. 결제 진행 중(CONFIRMING·UNKNOWN 5분 미만)인 PAYING 예약은 만료시키지 않는다 |
 | 승인·만료 레이스 | `confirm-expire race` | 결제는 승인됐는데 예약이 이미 EXPIRED인 상태. UNKNOWN 5분 경과 후 좌석을 푼 경우에만 생길 수 있다. 보상 취소 대상. 발생 `confirm_expire_race_occurred`, 잔존 `confirm_expire_race_remaining` |
 | 보상 | `compensate` | 레이스 발생 시 토스 취소를 호출해 되돌리는 것 |
-| 가짜 PG | `FakePg` | 타임아웃·지연·오류를 주입하는 토스 대역 |
+| PG 어댑터 | `PgClient` | 토스·Fake PG가 공유하는 인터페이스. `confirm` · `inquire` · `cancel`, 결과는 승인·확정 실패·미확정(`Approved` · `Declined` · `Unknown`) 세 갈래(ADR-0007) |
+| 가짜 PG | `FakePg` | 같은 인터페이스의 또 다른 구현. 결제 인증(`POST /api/fake-pg/payments`)까지 흉내 내고 고장을 요청 단위 `fault`로 주입한다 |
+| 고장 주입 | `fault` | `NONE` · `DECLINE` · `TIMEOUT` · `TIMEOUT_THEN_INQUIRY_DOWN` · `DELAY`. 시나리오 yaml `fake_pg.fault_mix`가 비율을 정하고 리포트는 주입량과 비교한다 |
+| 인박스 키 | `event_key` | 웹훅 중복 제거 키. 본문 `eventId`가 있으면 그 값, 없으면 `sha256(eventType|orderId|status|createdAt)` |
+| 인박스 결과 | `inbox outcome` | `APPLIED` · `STALE` · `DUPLICATE` · `IGNORED`(READY·IN_PROGRESS) · `ORPHAN`(orderId 없음) |
+| 보상 기록 | `payment_compensation` | 승인·만료 레이스의 보상 취소 작업 행. 3회 실패면 `compensation_failed_count` |
 
 ## 데이터·리포트
 

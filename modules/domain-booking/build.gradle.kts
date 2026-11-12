@@ -10,6 +10,7 @@ dependencies {
     api(libs.bucket4j.core)
     implementation(libs.nimbus.jose.jwt)
     implementation(libs.shedlock.spring)
+    implementation(libs.micrometer.core)
     implementation(project(":modules:support"))
     implementation(project(":modules:outbox"))
 

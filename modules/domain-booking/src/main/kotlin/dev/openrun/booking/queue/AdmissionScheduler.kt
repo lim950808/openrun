@@ -52,7 +52,9 @@ class AdmissionScheduler(
         ) : Decision
     }
 
-    @Scheduled(fixedDelayString = "\${openrun.queue.tick-ms:1000}")
+    // fixedRate, not fixedDelay: a tick that takes 300 ms must not stretch the period, or admission_rate_actual
+    // drops below the configured rate (first runner bench: 64/s for 100/s). The bucket refills by wall clock.
+    @Scheduled(fixedRateString = "\${openrun.queue.tick-ms:1000}")
     @SchedulerLock(name = "queue-admission", lockAtMostFor = "1m", lockAtLeastFor = "500ms")
     fun scheduledTick() {
         tick()

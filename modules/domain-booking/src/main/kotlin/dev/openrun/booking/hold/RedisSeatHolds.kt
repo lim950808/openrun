@@ -1,5 +1,6 @@
 package dev.openrun.booking.hold
 
+import io.micrometer.core.instrument.MeterRegistry
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.data.redis.core.script.DefaultRedisScript
 import org.springframework.stereotype.Component
@@ -11,6 +12,7 @@ import org.springframework.stereotype.Component
 @Component
 class RedisSeatHolds(
     private val redis: StringRedisTemplate,
+    private val registry: MeterRegistry,
 ) {
     private val claimScript = DefaultRedisScript(
         """
@@ -38,9 +40,15 @@ class RedisSeatHolds(
 
     fun keys(showtimeId: Long, seatIds: List<Long>): List<String> = seatIds.map { "hold:{$showtimeId}:$it" }
 
-    /** All-or-nothing SET for every key; false when any key already exists. */
-    fun claim(showtimeId: Long, seatIds: List<Long>, reservationId: Long, ttlMillis: Long): Boolean =
-        redis.execute(claimScript, keys(showtimeId, seatIds), reservationId.toString(), ttlMillis.toString()) == 1L
+    /** All-or-nothing SET for every key; false when any key already exists. Timed as phase `redis_script`. */
+    fun claim(showtimeId: Long, seatIds: List<Long>, reservationId: Long, ttlMillis: Long): Boolean {
+        val started = System.nanoTime()
+        try {
+            return redis.execute(claimScript, keys(showtimeId, seatIds), reservationId.toString(), ttlMillis.toString()) == 1L
+        } finally {
+            HoldService.recordPhase(registry, LockStrategy.REDIS_LUA, HoldService.PHASE_REDIS_SCRIPT, started)
+        }
+    }
 
     /** Deletes only keys still owned by [reservationId]; harmless when the strategy never wrote them. */
     fun release(showtimeId: Long, seatIds: List<Long>, reservationId: Long): Long =

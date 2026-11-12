@@ -25,7 +25,7 @@ M2는 오픈 시각에 몰리는 요청을 순서대로 좌석 API에 들여보�
 
 ### 2. 입장은 1초 틱의 단일 스케줄러가 한다
 
-`AdmissionScheduler`는 ShedLock(`queue-admission`)으로 인스턴스 하나만 돌며 1초마다 `queue:showtimes`의 각 회차에 대해:
+`AdmissionScheduler`는 ShedLock(`queue-admission`)으로 인스턴스 하나만 돌며 1초마다(`fixedRate`. 틱 작업 시간이 주기를 늘리면 실제 입장 속도가 설정값 아래로 떨어진다. 러너 첫 실행에서 64/s가 나온 원인) `queue:showtimes`의 각 회차에 대해:
 
 1. `open_at <= now()`가 아니면 건너뛴다. 오픈 전에는 순번만 있고 입장은 없다.
 2. 회차별 Bucket4j 버킷(용량 = 초당 입장 인원, greedy refill)에서 이번 틱의 **입장 예산**을 꺼낸다.

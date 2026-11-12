@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Summarize load/results/m1-*.json into the docs/reports/_template.md "전략 비교" table.
 
-Reads arrival-rate runs (m1-<STRATEGY>-*.json) and single-seat burst runs (m1-burst-<STRATEGY>-*.json).
+Reads arrival-rate runs (m1-<STRATEGY>-*.json), single-seat burst runs (m1-burst-<STRATEGY>-*.json) and hold
+phase snapshots (m1-phases-<STRATEGY>-run<N>.json, from /api/admin/diagnostics/hold-phases after each arrival run).
 Rules from docs/metrics.md: performance metrics (p99, throughput) are the median across runs with min~max;
 count metrics (oversell_count, burst_oversell_occurred) are summed across runs; missing data prints n/a.
 
@@ -62,6 +63,16 @@ def median_only(runs, key, digits=1):
     return "n/a" if not vs else fmt_num(statistics.median(vs), digits)
 
 
+def phase_p99(snapshots, phase):
+    """Median over runs of one phase's p99 from the diagnostics snapshots."""
+    vs = [s["phases"][phase]["p99_ms"] for s in snapshots
+          if s.get("phases", {}).get(phase, {}).get("p99_ms") is not None]
+    return "n/a" if not vs else fmt_num(statistics.median(vs), 1)
+
+
+PHASES = ["reserve_insert", "claim", "redis_script", "seats_insert", "total"]
+
+
 def load_runs(pattern, exclude_prefix=None):
     by_strategy = {}
     for path in sorted(glob.glob(pattern)):
@@ -80,8 +91,9 @@ def main():
     parser.add_argument("--out", help="also write the Markdown to this path")
     args = parser.parse_args()
 
-    arrival = load_runs(os.path.join(args.results, "m1-*.json"), exclude_prefix="m1-burst-")
+    arrival = load_runs(os.path.join(args.results, "m1-*.json"), exclude_prefix=("m1-burst-", "m1-phases-"))
     burst = load_runs(os.path.join(args.results, "m1-burst-*.json"))
+    phases = load_runs(os.path.join(args.results, "m1-phases-*.json"))
     if not arrival and not burst:
         print(f"no m1-*.json under {args.results}", file=sys.stderr)
         return 1
@@ -107,9 +119,10 @@ def main():
     lines.append("")
     lines.append(
         "| `strategy` | runs | `oversell_count` | `hold_p99_ms` (min~max) | `hold_throughput_rps` | `hold_attempt_rps` | "
-        "`hold_success_rate` | `hold_conflict_rate` | `burst_oversell_occurred` | `burst_p99_ms` |"
+        "`hold_success_rate` | `hold_conflict_rate` | `burst_oversell_occurred` | `burst_p99_ms` | "
+        "`dropped_iterations` | `planned_attempt_rps` |"
     )
-    lines.append("|---|---|---|---|---|---|---|---|---|---|")
+    lines.append("|---|---|---|---|---|---|---|---|---|---|---|---|")
     present = set(arrival) | set(burst)
     ordered = [s for s in STRATEGIES if s in present] + sorted(present - set(STRATEGIES))
     for strategy in ordered:
@@ -119,8 +132,24 @@ def main():
             f"| {strategy} | {len(runs)} | {summed(runs, 'oversell_count')} | {median_range(runs, 'hold_p99_ms')} | "
             f"{median_range(runs, 'hold_throughput_rps')} | {median_range(runs, 'hold_attempt_rps')} | "
             f"{median_pct(runs, 'hold_success_rate')} | {median_pct(runs, 'hold_conflict_rate')} | "
-            f"{pairs_seats(bursts)} | {median_only(bursts, 'burst_p99_ms')} |"
+            f"{pairs_seats(bursts)} | {median_only(bursts, 'burst_p99_ms')} | "
+            f"{summed(runs, 'dropped_iterations')} | {median_only(runs, 'planned_attempt_rps')} |"
         )
+    if phases:
+        lines.append("")
+        lines.append("hold 단계별 p99 (ms, 3회 중앙값)")
+        lines.append("")
+        lines.append(
+            "| `strategy` | " + " | ".join(PHASES) + " | `hikari_acquire_p99_ms` | `hikari_pending_max` |"
+        )
+        lines.append("|---" * (len(PHASES) + 3) + "|")
+        phase_ordered = [s for s in STRATEGIES if s in phases] + sorted(set(phases) - set(STRATEGIES))
+        for strategy in phase_ordered:
+            snaps = phases[strategy]
+            lines.append(
+                f"| {strategy} | " + " | ".join(phase_p99(snaps, p) for p in PHASES) + " | "
+                f"{median_only(snaps, 'hikari_acquire_p99_ms')} | {median_only(snaps, 'hikari_pending_max', 0)} |"
+            )
     text = "\n".join(lines) + "\n"
     print(text, end="")
     if args.out:
