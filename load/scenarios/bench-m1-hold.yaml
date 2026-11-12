@@ -9,6 +9,7 @@
 #   app.hold_ttl                     : hold TTL the API runs with during the bench (ISO-8601 duration)
 #   app.janitor_delay_ms             : janitor sweep interval the API runs with during the bench
 #   app.allow_strategy_override      : the API must honor X-Hold-Strategy
+#   app.require_access_token         : false = seat APIs take X-Member-Id without the queue (ADR-0006 §3)
 #   lock_strategy                    : NAIVE | FOR_UPDATE | SKIP_LOCKED | CONDITIONAL_UPDATE | REDIS_LUA (set per run)
 #   runs                             : consecutive runs per strategy; report the median with min and max
 #   abandon_probability              : per-member probability of leaving the queue (unused while queue is disabled)
@@ -47,10 +48,12 @@ queue:
 # successful holds instead of the SEAT_TAKEN path after the 1,500 seats sell out. The bench runner must start
 # the API with the matching env:
 #   OPENRUN_HOLD_TTL=PT10S OPENRUN_HOLD_JANITOR_DELAY_MS=1000 OPENRUN_HOLD_ALLOW_OVERRIDE=true
+#   OPENRUN_QUEUE_REQUIRE_ACCESS_TOKEN=false   (M1 measures hold without the queue; seat APIs take X-Member-Id)
 app:
   hold_ttl: PT10S
   janitor_delay_ms: 1000
   allow_strategy_override: true
+  require_access_token: false
 
 lock_strategy: NAIVE
 runs: 3

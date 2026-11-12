@@ -6,7 +6,8 @@
 #   env:   BASE_URL (default http://localhost:8080), PEAK_RPS, DURATION_S, SCENARIO   (arrival bench)
 #          BURST_VUS (default 100), BURST_DURATION_S (default 20)                     (burst)
 #
-# The API must run with OPENRUN_HOLD_ALLOW_OVERRIDE=true so the X-Hold-Strategy header is honored.
+# The API must run with OPENRUN_HOLD_ALLOW_OVERRIDE=true so the X-Hold-Strategy header is honored, and with
+# OPENRUN_QUEUE_REQUIRE_ACCESS_TOKEN=false so the seat APIs take X-Member-Id without the queue (ADR-0006 §3).
 # Uses a native k6 when on PATH, else the grafana/k6 docker image with the repo mounted at /work.
 set -euo pipefail
 
@@ -21,7 +22,7 @@ BASE_URL="${BASE_URL:-http://localhost:8080}"
 mkdir -p load/results
 
 echo "reminder: start the API with the bench settings from the scenario yaml 'app:' block:"
-echo "  OPENRUN_HOLD_TTL=PT10S OPENRUN_HOLD_JANITOR_DELAY_MS=1000 OPENRUN_HOLD_ALLOW_OVERRIDE=true"
+echo "  OPENRUN_HOLD_TTL=PT10S OPENRUN_HOLD_JANITOR_DELAY_MS=1000 OPENRUN_HOLD_ALLOW_OVERRIDE=true OPENRUN_QUEUE_REQUIRE_ACCESS_TOKEN=false"
 
 # run_k6 <script> <strategy> [-e KEY=VALUE ...]
 run_k6() {

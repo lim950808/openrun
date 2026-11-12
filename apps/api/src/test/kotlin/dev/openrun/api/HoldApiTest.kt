@@ -4,6 +4,7 @@ import com.jayway.jsonpath.JsonPath
 import dev.openrun.booking.hold.SeatStatus
 import dev.openrun.booking.hold.IntegrityQuery
 import dev.openrun.booking.hold.SeatStatusQuery
+import dev.openrun.booking.queue.TokenCodec
 import io.micrometer.core.instrument.MeterRegistry
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
@@ -28,12 +29,13 @@ class HoldApiTest @Autowired constructor(
     private val seatStatus: SeatStatusQuery,
     private val registry: MeterRegistry,
     private val integrity: IntegrityQuery,
+    private val codec: TokenCodec,
 ) {
     private val members = AtomicLong(System.nanoTime() % 1_000_000_000)
 
     private fun hold(showtimeId: Long, memberId: Long, vararg seatIds: Long): MvcTestResult =
         mvc.post().uri("/api/showtimes/{id}/holds", showtimeId)
-            .header("X-Member-Id", memberId.toString())
+            .header("Authorization", codec.bearerFor(showtimeId, memberId))
             .contentType(MediaType.APPLICATION_JSON)
             .content("""{"seatIds":${seatIds.toList()}}""")
             .exchange()
@@ -83,14 +85,34 @@ class HoldApiTest @Autowired constructor(
     }
 
     @Test
-    fun `X-Member-Id가 없으면 400`() {
+    fun `M2_2 입장 토큰 모드에서 X-Member-Id만 보내면 401 ACCESS_TOKEN_REQUIRED`() {
         val showtime = admin.newShowtime()
 
         assertThat(
             mvc.post().uri("/api/showtimes/{id}/holds", showtime.showtimeId)
+                .header("X-Member-Id", members.incrementAndGet().toString())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""{"seatIds":[${showtime.seatIds.getValue("S").first()}]}"""),
-        ).hasStatus(HttpStatus.BAD_REQUEST)
+        ).hasStatus(HttpStatus.UNAUTHORIZED)
+            .bodyJson().extractingPath("$.code").isEqualTo("ACCESS_TOKEN_REQUIRED")
+    }
+
+    @Test
+    fun `DELETE는 X-Member-Id도 입장 토큰도 없으면 400`() {
+        assertThat(mvc.delete().uri("/api/reservations/{id}", 1)).hasStatus(HttpStatus.BAD_REQUEST)
+            .bodyJson().extractingPath("$.code").isEqualTo("MISSING_HEADER")
+    }
+
+    @Test
+    fun `M2_2 DELETE는 입장 토큰으로도 소유자를 확인한다`() {
+        val showtime = admin.newShowtime()
+        val owner = members.incrementAndGet()
+        val held = hold(showtime.showtimeId, owner, showtime.seatIds.getValue("S")[5])
+        val reservationId = JsonPath.read<Number>(held.response.contentAsString, "$.reservationId").toLong()
+
+        assertThat(
+            mvc.delete().uri("/api/reservations/{id}", reservationId).header("Authorization", codec.bearerFor(showtime.showtimeId, owner)),
+        ).hasStatus(HttpStatus.NO_CONTENT)
     }
 
     @Test
@@ -136,7 +158,9 @@ class HoldApiTest @Autowired constructor(
         val a = showtime.seatIds.getValue("S").last()
         assertThat(hold(showtime.showtimeId, members.incrementAndGet(), a)).hasStatus(HttpStatus.CREATED)
 
-        val result = mvc.get().uri("/api/showtimes/{id}/seats", showtime.showtimeId).exchange()
+        val result = mvc.get().uri("/api/showtimes/{id}/seats", showtime.showtimeId)
+            .header("Authorization", codec.bearerFor(showtime.showtimeId, members.incrementAndGet()))
+            .exchange()
 
         assertThat(result).hasStatusOk()
         val body = result.response.contentAsString

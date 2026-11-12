@@ -31,13 +31,13 @@
 
 | 지표 | 정의 | 분자 / 분모 | 측정 지점 | 목표 |
 |---|---|---|---|---|
-| `abandon_rate` | 진입했지만 입장 전에 폴링을 멈춘 비율. "멈춤"은 마지막 폴링 후 30초 이상 무요청이고 입장되지 않은 경우. app은 `queue_admission` 테이블, mart는 `QueueEntered`·`QueueAdmitted`·마지막 폴링 이벤트로 계산 | 이탈 회원 수 / 진입 회원 수 | app, mart | 시나리오의 회원당 이탈 확률(15%)과 비교 (복원 검증) |
-| `fifo_violation_rate` | 입장된 회원 중, 자신보다 늦게 진입한 회원이 먼저 입장한 경우의 비율 | 위반 회원 수 / 입장 회원 수 | app | 1% 이하 |
+| `abandon_rate` | 진입했지만 입장 전에 폴링을 멈춘 비율. "멈춤"은 마지막 폴링(또는 진입) 후 30초 이상 무요청이고 입장되지 않은 경우. app은 `queue_admission`의 `abandoned_at`(스케줄러 판정) + 점검 시점에 ZSET에 남아 있고 30초 넘게 폴링이 없는 회원, mart는 `QueueEntered`·`QueueAdmitted`·`QueueAbandoned` 이벤트로 계산 | 이탈 회원 수 / 진입 회원 수 | app, mart | 시나리오의 회원당 이탈 확률(15%)과 비교 (복원 검증) |
+| `fifo_violation_rate` | 입장된 회원 중, 자신보다 늦게 진입한 회원이 먼저 입장한 경우의 비율. 진입 순서는 `entered_at`(ZSET 점수), 입장 순서는 `admitted_seq` | 위반 회원 수 / 입장 회원 수 | app (`GET /api/admin/showtimes/{id}/queue-integrity`) | 1% 이하 (구조상 0) |
 | `admission_delay_p50_s`, `admission_delay_p99_s` | 입장 시각 − 진입 시각 (오픈 전 진입은 오픈 시각 기준) | 없음 | app | 보고만 |
-| `admission_rate_actual` | 실제 초당 입장 인원 평균 | 입장 수 / 초 | app | 설정값 ±5% |
+| `admission_rate_actual` | 실제 초당 입장 인원 평균 | 입장 수 / (첫 입장 초 ~ 마지막 입장 초, 양 끝 포함) | app (queue-integrity) | 설정값 ±5% (대기열이 밀려 있을 때만 의미 있음. 도착이 입장 속도보다 느리면 도착률이 나온다) |
 | `rank_api_p99_ms` | `GET /queue/me` 응답 시간 p99 | 없음 | k6 | 100 이하 |
 | `rank_drift_count` | 새로고침 폭풍 시나리오에서 같은 회원의 순번이 직전 응답보다 커진 횟수 (줄어드는 것은 정상) | 없음 | k6 커스텀 | 0 |
-| `unauthorized_seat_calls` | 입장 토큰 없이 또는 만료 토큰으로 좌석 API를 호출해 401을 받은 수 | 없음 | app | 보고만 (매크로 행동 지표) |
+| `unauthorized_seat_calls` | 입장 토큰 없이 또는 만료 토큰으로 좌석 API를 호출해 401을 받은 수. `openrun.api.errors{code=ACCESS_TOKEN_*}` 합 | 없음 | app | 보고만 (매크로 행동 지표) |
 
 ## M3 결제
 

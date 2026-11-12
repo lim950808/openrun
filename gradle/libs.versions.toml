@@ -4,6 +4,7 @@ spring-boot = "4.1.2"
 shedlock = "7.11.0"
 bucket4j = "8.22.0"
 archunit = "1.5.1"
+nimbus-jose-jwt = "10.10"
 
 [libraries]
 # Versions below without `version.ref` are managed by the Spring Boot BOM (platform).
@@ -33,6 +34,7 @@ shedlock-spring = { module = "net.javacrumbs.shedlock:shedlock-spring", version.
 shedlock-provider-jdbc-template = { module = "net.javacrumbs.shedlock:shedlock-provider-jdbc-template", version.ref = "shedlock" }
 bucket4j-core = { module = "com.bucket4j:bucket4j_jdk17-core", version.ref = "bucket4j" }
 archunit = { module = "com.tngtech.archunit:archunit", version.ref = "archunit" }
+nimbus-jose-jwt = { module = "com.nimbusds:nimbus-jose-jwt", version.ref = "nimbus-jose-jwt" }
 
 [plugins]
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }

@@ -45,6 +45,8 @@ docs/reports             주간 리포트 아카이브. `_template.md`를 복사
 docker compose -f infra/compose/compose.yaml --profile core up -d --wait
 ./gradlew :apps:api:bootRun                       # localhost:8080, /api/ping, /actuator/health
 docker run --rm -i --network host grafana/k6 run - < load/k6/smoke.js   # k6 미설치 시
+# 대기열: POST /api/showtimes/{id}/queue → GET /api/showtimes/{id}/queue/me (Bearer 대기 토큰) → 입장 토큰으로 좌석 API
+load/bench-m2.sh                                  # M2 벤치(API 실행 중). M1 벤치는 OPENRUN_QUEUE_REQUIRE_ACCESS_TOKEN=false
 ```
 
 ## 코드 스타일
@@ -63,4 +65,4 @@ docker run --rm -i --network host grafana/k6 run - < load/k6/smoke.js   # k6 미
 
 ## 현재 단계
 
-릴리스 0(하네스) 진행 중. 다음은 M1 좌석 선점: 락 전략 5종 비교, 첫 리포트 2026-11-28(토).
+M2 최소 대기열 진행 중 (ADR-0006). M1 리포트 #1은 2026-11-28(토).

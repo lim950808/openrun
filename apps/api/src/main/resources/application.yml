@@ -30,6 +30,15 @@ openrun:
     ttl: ${OPENRUN_HOLD_TTL:PT12M}
     naive-delay-ms: ${OPENRUN_HOLD_NAIVE_DELAY_MS:0}
     janitor-delay-ms: ${OPENRUN_HOLD_JANITOR_DELAY_MS:5000}
+  queue:
+    admissions-per-second: ${OPENRUN_QUEUE_ADMISSIONS_PER_SECOND:100}
+    entry-lead: ${OPENRUN_QUEUE_ENTRY_LEAD:PT10M}
+    abandon-after: ${OPENRUN_QUEUE_ABANDON_AFTER:PT30S}
+    access-token-ttl: ${OPENRUN_QUEUE_ACCESS_TOKEN_TTL:PT10M}
+    visitor-token-ttl: PT3H
+    tick-ms: ${OPENRUN_QUEUE_TICK_MS:1000}
+    require-access-token: ${OPENRUN_QUEUE_REQUIRE_ACCESS_TOKEN:true}
+    token-secret: ${OPENRUN_TOKEN_SECRET:dev-only-not-a-secret-openrun-local-token-key}
 
 management:
   endpoints:

@@ -33,6 +33,8 @@ jobs:
       OPENRUN_HOLD_ALLOW_OVERRIDE: "true"
       OPENRUN_HOLD_TTL: PT10S
       OPENRUN_HOLD_JANITOR_DELAY_MS: "1000"
+      # M1 measures hold without the queue: seat APIs take X-Member-Id (ADR-0006 §3).
+      OPENRUN_QUEUE_REQUIRE_ACCESS_TOKEN: "false"
       BASE_URL: http://localhost:8080
       # schedule runs carry no inputs; fall back to the documented defaults.
       RUNS: ${{ inputs.runs || '3' }}

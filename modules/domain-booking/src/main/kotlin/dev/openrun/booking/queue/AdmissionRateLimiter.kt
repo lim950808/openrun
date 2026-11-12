@@ -16,4 +16,12 @@ class AdmissionRateLimiter(admissionsPerSecond: Long) {
         .build()
 
     fun tryAdmit(): Boolean = bucket.tryConsume(1)
+
+    /** This tick's admission budget: takes up to [max] tokens, fewer when the bucket has not refilled yet. */
+    fun takeUpTo(max: Long): Long = bucket.tryConsumeAsMuchAsPossible(max)
+
+    /** Returns budget a tick did not use (queue ran empty), so the next tick is not short-changed. */
+    fun refund(tokens: Long) {
+        if (tokens > 0) bucket.addTokens(tokens)
+    }
 }

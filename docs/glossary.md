@@ -40,14 +40,16 @@
 
 | 한글 | 코드 식별자 | 정의 |
 |---|---|---|
-| 대기열 | `Queue`, `queue:{showtimeId}` | 오픈 시 좌석 API 접근을 순서대로 허용하는 ZSET |
+| 대기열 | `Queue`, `queue:{showtimeId}` | 오픈 시 좌석 API 접근을 순서대로 허용하는 ZSET. 점수는 진입 시각(Redis 서버 시각, ADR-0006) |
 | 진입 | `enqueue` | 대기열에 들어가는 것. 진입 시각이 순번 |
 | 순번 | `rank` | ZRANK 값. 0부터 시작 |
-| 대기 토큰 | `visitor token` | 진입 시 발급. 순번 조회에만 사용 |
-| 입장 | `admission`, `admit` | 대기열에서 꺼내 입장 토큰을 주는 것 |
+| 대기 토큰 | `visitor token` | 진입 시 발급. 순번 조회에만 사용. JWT, 3시간 |
+| 입장 | `admission`, `admit` | 대기열에서 꺼내 입장 토큰을 주는 것. 1초 틱의 `AdmissionScheduler`(ShedLock)가 한다 |
+| 입장 기록 키 | `admitted:{showtimeId}:{memberId}` | 발급된 입장 토큰을 토큰 TTL만큼 보관하는 Redis 키. 폴링이 입장 여부를 여기서 본다 |
 | 입장 속도 | `admission_rate` | 초당 입장 인원. Bucket4j로 제어 |
 | 입장 토큰 | `access token` | 좌석 API 호출 권한. JWT, 10분 |
-| 이탈 | `abandon` | 입장 전에 폴링을 멈추는 것 |
+| 이탈 | `abandon` | 입장 전에 폴링을 멈추는 것. 판정은 마지막 폴링(또는 진입) 후 30초 무요청, 입장 스케줄러가 꺼낼 때 판정한다 |
+| 폴링 기록 | `queue:{showtimeId}:polled` | 회원별 마지막 폴링 시각을 담는 Redis HASH. 폴링은 DB를 쓰지 않고 이 해시만 갱신한다 |
 | FIFO 위반 | `fifo_violation` | 늦게 진입한 사람이 먼저 입장한 경우 |
 | 새로고침 폭풍 | `refresh storm` | 폴링 간격 0.2초 봇 시나리오 |
 | 입장 기록 | `queue_admission` | 회원별 진입·입장·마지막 폴링 시각을 적는 JDBC 테이블. 대기열 자체는 Redis에 있고, 이 테이블이 ADR-0003의 `queue_*`다. 이탈률·FIFO 위반률의 app 측 원천 |
@@ -77,7 +79,7 @@
 | 한글 | 코드 식별자 | 정의 |
 |---|---|---|
 | 아웃박스 | `outbox` | 도메인 이벤트를 같은 트랜잭션으로 적재하는 테이블. CDC 입력 |
-| 도메인 이벤트 | `ReservationHeld` 등 | 과거형 이름. 예약: `ReservationHeld` · `ReservationPaymentStarted` · `ReservationPaymentFailed` · `ReservationConfirmed` · `ReservationExpired` · `ReservationCancelled`. 결제: `PaymentRequested` · `PaymentConfirming` · `PaymentConfirmed` · `PaymentFailed` · `PaymentUnknown` · `PaymentCancelled` · `CompensationRequested`. 대기열: `QueueEntered` · `QueueAdmitted` · `QueuePolled`(샘플링). 토스 웹훅 이벤트는 `PaymentEvent`로 구분해 부른다 |
+| 도메인 이벤트 | `ReservationHeld` 등 | 과거형 이름. 예약: `ReservationHeld` · `ReservationPaymentStarted` · `ReservationPaymentFailed` · `ReservationConfirmed` · `ReservationExpired` · `ReservationCancelled`. 결제: `PaymentRequested` · `PaymentConfirming` · `PaymentConfirmed` · `PaymentFailed` · `PaymentUnknown` · `PaymentCancelled` · `CompensationRequested`. 대기열: `QueueEntered` · `QueueAdmitted` · `QueueAbandoned` (`QueuePolled` 샘플링은 2차에서 필요 시). 토스 웹훅 이벤트는 `PaymentEvent`로 구분해 부른다 |
 | 오픈런 | `open run` | 오픈 시각에 몰리는 예매 경쟁 |
 | 주간 오픈런 | `weekly open run` | 매주 토요일 20:00 자동 실행되는 가상 오픈런 |
 | 시나리오 | `scenario`, `load/scenarios/*.yaml` | 봇 행동 파라미터 파일 |
