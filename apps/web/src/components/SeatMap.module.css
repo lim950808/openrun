@@ -1,0 +1,96 @@
+.wrap {
+  margin-bottom: var(--space-4);
+}
+
+/* The map is wider than a phone: it scrolls inside its own box, never the page. */
+.scroller {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.svg {
+  display: block;
+  max-width: none;
+}
+
+.stage {
+  fill: var(--color-muted);
+  opacity: 0.25;
+}
+
+.stageText {
+  fill: var(--color-text);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+}
+
+.blockLabel {
+  fill: var(--color-text);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.rowLabel {
+  fill: var(--color-muted);
+  font-size: 10px;
+  font-family: var(--font-mono);
+}
+
+.seat {
+  stroke: none;
+}
+
+.AVAILABLE {
+  fill: var(--seat-available);
+  background: var(--seat-available);
+  cursor: pointer;
+}
+
+.AVAILABLE:hover {
+  stroke: var(--color-accent);
+  stroke-width: 1.5;
+}
+
+.SELECTED {
+  fill: var(--seat-selected);
+  background: var(--seat-selected);
+  cursor: pointer;
+}
+
+.HELD {
+  fill: var(--seat-held);
+  background: var(--seat-held);
+}
+
+.SOLD {
+  fill: var(--seat-sold);
+  background: var(--seat-sold);
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  list-style: none;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  font-size: 0.9rem;
+  color: var(--color-muted);
+}
+
+.legend li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.swatch {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+}

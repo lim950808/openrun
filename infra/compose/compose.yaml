@@ -3,7 +3,7 @@ name: openrun
 services:
   postgres:
     image: postgres:17-alpine
-    profiles: ["core"]
+    profiles: ["core", "demo"]
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-openrun}
       POSTGRES_USER: ${POSTGRES_USER:-openrun}
@@ -22,7 +22,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    profiles: ["core"]
+    profiles: ["core", "demo"]
     ports:
       - "${REDIS_PORT:-6379}:6379"
     healthcheck:
@@ -30,6 +30,47 @@ services:
       interval: 2s
       timeout: 3s
       retries: 30
+
+  # demo profile (ADR-0008 §4): the whole stack on one VM. `docker compose -f infra/compose/compose.yaml --profile demo up -d --build`
+  # Secrets (OPENRUN_TOKEN_SECRET, OPENRUN_TOSS_*) come from the environment or hosting secrets only (CLAUDE.md rule 7).
+  api:
+    build:
+      context: ../..
+      dockerfile: apps/api/Dockerfile
+    profiles: ["demo"]
+    environment:
+      OPENRUN_DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-openrun}
+      OPENRUN_DB_USER: ${POSTGRES_USER:-openrun}
+      OPENRUN_DB_PASSWORD: ${POSTGRES_PASSWORD:-openrun}
+      OPENRUN_REDIS_HOST: redis
+      OPENRUN_REDIS_PORT: "6379"
+      OPENRUN_PAYMENT_PG: ${OPENRUN_PAYMENT_PG:-fake}
+      OPENRUN_FAKE_PG_WEBHOOK_URL: http://api:8080/api/webhooks/toss
+      # An empty value would override application.yml's dev default, so the same dev-only defaults are repeated here.
+      OPENRUN_TOKEN_SECRET: ${OPENRUN_TOKEN_SECRET:-dev-only-not-a-secret-openrun-local-token-key}
+      OPENRUN_TOSS_SECRET_KEY: ${OPENRUN_TOSS_SECRET_KEY:-}
+      OPENRUN_TOSS_CLIENT_KEY: ${OPENRUN_TOSS_CLIENT_KEY:-}
+      OPENRUN_TOSS_WEBHOOK_SECRET: ${OPENRUN_TOSS_WEBHOOK_SECRET:-dev-only-not-a-secret-openrun-webhook-key}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "${API_PORT:-8080}:8080"
+
+  web:
+    build:
+      context: ../../apps/web
+      args:
+        API_BASE_URL: http://api:8080
+    profiles: ["demo"]
+    environment:
+      API_BASE_URL: http://api:8080
+    depends_on:
+      - api
+    ports:
+      - "${WEB_PORT:-3000}:3000"
 
 volumes:
   postgres-data:

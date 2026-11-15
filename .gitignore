@@ -19,3 +19,11 @@ out/
 # Load test outputs (CI uploads them as artifacts)
 load/results/*
 !load/results/.gitkeep
+
+# apps/web (Next.js)
+apps/web/.next/
+apps/web/out/
+apps/web/playwright-report/
+apps/web/test-results/
+apps/web/next-env.d.ts
+apps/web/*.tsbuildinfo

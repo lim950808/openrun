@@ -1,0 +1,15 @@
+build/
+**/build/
+.gradle/
+**/.gradle/
+.kotlin/
+node_modules/
+**/node_modules/
+apps/web/.next/
+apps/web/playwright-report/
+apps/web/test-results/
+.git/
+.idea/
+.env
+.env.*
+load/results/
