@@ -79,6 +79,17 @@
 | 인박스 결과 | `inbox outcome` | `APPLIED` · `STALE` · `DUPLICATE` · `IGNORED`(READY·IN_PROGRESS) · `ORPHAN`(orderId 없음) |
 | 보상 기록 | `payment_compensation` | 승인·만료 레이스의 보상 취소 작업 행. 3회 실패면 `compensation_failed_count` |
 
+## 화면 (`apps/web`, M4)
+
+| 한글 | 코드 | 정의 |
+|---|---|---|
+| 간이 회원 id | `memberId` (`localStorage` `openrun.memberId`) | 화면이 첫 방문에 발급하는 1~1,000,000,000 범위 난수. 봇은 2,000,000,000 이상(`MEMBER_OFFSET`). `X-Member-Id`로 보낸다 |
+| 대기열 화면 | `/showtimes/{id}/queue` | 진입·폴링(2.5초)·입장 이동. 상태: 오픈 전 · 대기 · 입장 · 이탈 |
+| 좌석맵 | `/showtimes/{id}/seats`, `SeatMap` | 1,500석 SVG. 좌석 상태 색 토큰 `--seat-available/held/sold/selected` |
+| 결제·결과 화면 | `/reservations/{id}` | 예약·결제 상태 조합이 화면을 고른다(ADR-0008 §1 표) |
+| 디자인 토큰 | `--color-*`, `--seat-*`, `--space-*`, `--radius-*` | CSS 변수. 라이브러리 없음 |
+| 공개 회차 조회 | `GET /api/showtimes`, `GET /api/showtimes/{id}` | 카탈로그 읽기 전용. `entryOpensAt = openAt - entry-lead` |
+
 ## 데이터·리포트
 
 | 한글 | 코드 식별자 | 정의 |
@@ -95,6 +106,8 @@
 | 마트 | `mart` | dbt로 만든 분석 테이블 |
 | 리니지 | `lineage` | 데이터가 어디서 와서 어디로 가는지의 그래프 |
 | 리플레이 | `replay` | 한 회차의 이벤트를 시간순으로 다시 보여주는 화면 |
+| 주간 오픈런 실행 | `load/weekly-openrun.sh`, `weekly-openrun.yml` | 토요일 러너 안에서 회차 생성 → 19:50 봇 진입 → 20:00 오픈 → 검증 JSON까지 한 번에(ADR-0008 §2) |
+| 리포트 발행 | `load/report/weekly_report.py` → `docs/reports/YYYY-MM-DD.md` + `.json` | 숫자는 기계가 채우고 "배운 것·미해결"은 `> 직접 작성`. `report_no` = 기존 리포트 수 + 1 |
 
 ## 쓰지 않는 말
 

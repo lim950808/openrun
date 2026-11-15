@@ -58,7 +58,7 @@ Fake PG는 confirm이 Approved로 끝난 뒤 `openrun.payment.fake-pg.webhooks=t
 | `GET` | `/api/payments/config` | 없음 | `{pg, clientKey}`. 정적 결제 페이지가 토스 위젯을 띄울 때 쓴다 |
 | `GET` | `/api/admin/showtimes/{id}/payment-integrity` | 없음 | `hold_to_confirm_rate` · `confirm_expire_race_occurred` · `confirm_expire_race_remaining` · `compensation_failed_count` · `unknown_count` · `unknown_dwell_p99_s` · `webhook_duplicate_count` · `webhook_stale_count` · `amount_mismatch_count` · `idempotent_replay_count` · `cancel_success_rate` · `state_event_mismatch_count` |
 
-실연동 영상용 정적 페이지 `apps/api/src/main/resources/static/pay/index.html`은 토스 결제위젯 v2 SDK로 `requestPayment`를 띄우고 `successUrl`에서 `/api/payments/confirm`을 부른다. 화면 작업은 M4의 Next.js가 하고, 이 페이지는 M3-1 수용 기준(실연동)을 위한 최소 HTML이다.
+실연동(M3-1) 화면은 M4의 결제·결과 페이지 `apps/web` `/reservations/{id}`가 맡는다(ADR-0008 §1). `GET /api/payments/config`의 `pg`가 `toss`면 토스 결제위젯 v2 SDK로 `requestPayment`를 띄우고 `successUrl`(같은 페이지)로 돌아와 `/api/payments/confirm`을 부른다. M3 당시의 임시 정적 페이지 `static/pay/index.html`은 M4에서 삭제했다.
 
 ### 5. 웹훅 적용 워커와 결제 janitor
 
