@@ -1,16 +1,169 @@
 name: weekly-openrun
 
-# Saturday 20:00 KST = Saturday 11:00 UTC (docs/requirements.md §2).
+# Weekly open run inside one runner, then the report commit (ADR-0008 §2·§3, docs/requirements.md §2, M4-4·M4-5).
+# Cron 10:40 UTC Saturday = 19:40 KST: boot compose + API, create today's 20:00 KST showtime, bots from 19:50
+# (entry lead 10 min), integrity 15 min after k6 ends, report ~20:35. Scheduled runs may start late; when setup
+# passes 20:00 the script opens at now + 60 s and records open_at_adjusted.
 on:
   schedule:
-    - cron: "0 11 * * 6"
+    - cron: "40 10 * * 6"
   workflow_dispatch:
+    inputs:
+      open_delay_s:
+        description: open the showtime this many seconds from now (empty = today 20:00 KST)
+        default: ""
+      duration_s:
+        description: bot arrival window in seconds (scenario stages are scaled to fit)
+        default: "1200"
+      members:
+        description: bot members (empty = scenario virtual_users)
+        default: ""
+      settle_s:
+        description: wait after k6 before the integrity checks (hold TTL + UNKNOWN release)
+        default: "900"
+      publish:
+        description: commit docs/reports to the default branch
+        type: boolean
+        default: true
 
 permissions:
-  contents: read
+  contents: write
+  actions: read
+
+concurrency:
+  group: weekly-openrun
+  cancel-in-progress: false
 
 jobs:
   openrun:
     runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      OPENRUN_DB_URL: jdbc:postgresql://localhost:5432/openrun
+      OPENRUN_DB_USER: openrun
+      OPENRUN_DB_PASSWORD: openrun
+      OPENRUN_REDIS_HOST: localhost
+      OPENRUN_REDIS_PORT: "6379"
+      # Queue (ADR-0006 §6). Must match ADMISSIONS_PER_SECOND below and the scenario yaml.
+      OPENRUN_QUEUE_ADMISSIONS_PER_SECOND: "100"
+      OPENRUN_QUEUE_ABANDON_AFTER: PT30S
+      OPENRUN_QUEUE_REQUIRE_ACCESS_TOKEN: "true"
+      ADMISSIONS_PER_SECOND: "100"
+      # Payment (ADR-0007 §6): Fake PG with its signed DONE webhooks.
+      OPENRUN_PAYMENT_PG: fake
+      OPENRUN_FAKE_PG_WEBHOOKS: "true"
+      BASE_URL: http://localhost:8080
+      # schedule runs carry no inputs; fall back to the documented defaults.
+      OPEN_DELAY_S: ${{ inputs.open_delay_s || '' }}
+      DURATION_S: ${{ inputs.duration_s || '1200' }}
+      MEMBERS: ${{ inputs.members || '' }}
+      SETTLE_S: ${{ inputs.settle_s || '900' }}
+      PUBLISH: ${{ github.event_name == 'schedule' || inputs.publish }}
     steps:
-      - run: 'echo "weekly open run: implemented in M4"'
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Generate token and webhook secrets
+        # Fresh signing keys per run (ADR-0006 §3, ADR-0007 §6); never stored.
+        run: |
+          secret="$(openssl rand -hex 32)"
+          echo "::add-mask::$secret"
+          echo "OPENRUN_TOKEN_SECRET=$secret" >> "$GITHUB_ENV"
+          webhook="$(openssl rand -hex 32)"
+          echo "::add-mask::$webhook"
+          echo "OPENRUN_TOSS_WEBHOOK_SECRET=$webhook" >> "$GITHUB_ENV"
+      - name: Start compose core
+        run: docker compose -f infra/compose/compose.yaml --profile core up -d --wait
+      - name: Start API
+        run: |
+          ./gradlew :apps:api:bootRun --no-daemon > bootRun.log 2>&1 &
+          for _ in $(seq 1 60); do
+            if curl -fsS http://localhost:8080/actuator/health > /dev/null; then
+              echo "API is up"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "API did not become healthy"
+          cat bootRun.log
+          exit 1
+      - uses: grafana/setup-k6-action@v1
+      - name: Capture runner spec
+        run: |
+          mkdir -p load/results
+          {
+            echo "nproc=$(nproc)"
+            free -g | head -2
+            echo "kernel=$(uname -r)"
+          } > load/results/runner-spec.txt
+          cat load/results/runner-spec.txt
+      - name: Weekly open run
+        run: load/weekly-openrun.sh
+      # The report goes out even when the open run failed (ADR-0008 §3: n/a plus the reason, never no report).
+      - name: Download today's bench artifacts
+        # Same-day successful bench-m1 / bench-m2 runs (UTC date; both run Saturday morning KST = Saturday UTC).
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          today="$(date -u +%F)"
+          : > load/results/bench-note.txt
+          for pair in bench-m1.yml:bench-m1-results:bench-m1 bench-m2.yml:bench-m2-results:bench-m2; do
+            IFS=: read -r workflow artifact dir <<< "$pair"
+            id="$(gh run list --workflow "$workflow" --status success --created "$today" --limit 1 \
+              --json databaseId --jq '.[0].databaseId' || true)"
+            if [[ -z "$id" || "$id" == "null" ]]; then
+              echo "$dir: $today(UTC)에 성공한 $workflow 실행 없음" >> load/results/bench-note.txt
+              continue
+            fi
+            if ! gh run download "$id" --name "$artifact" --dir "load/results/$dir"; then
+              echo "$dir: run $id 아티팩트 $artifact 내려받기 실패" >> load/results/bench-note.txt
+            fi
+          done
+          cat load/results/bench-note.txt
+      - name: Report
+        if: ${{ !cancelled() }}
+        run: |
+          echo "REPORT_DATE=$(TZ=Asia/Seoul date +%F)" >> "$GITHUB_ENV"
+          note="$(tr '\n' ' ' < load/results/bench-note.txt 2> /dev/null || echo 'bench 아티팩트 단계 실패')"
+          python3 load/report/weekly_report.py \
+            --date "$(TZ=Asia/Seoul date +%F)" \
+            --weekly load/results \
+            --bench-m1 load/results/bench-m1 \
+            --bench-m2 load/results/bench-m2 \
+            --reports docs/reports \
+            --runner-spec load/results/runner-spec.txt \
+            --label "GitHub Actions ubuntu-latest" \
+            --bench-note "$note" > load/results/weekly-report.md
+          cat load/results/weekly-report.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Publish report
+        if: ${{ !cancelled() && env.PUBLISH == 'true' && env.REPORT_DATE != '' }}
+        # GITHUB_TOKEN pushes do not trigger other workflows, so ci.yml does not recurse.
+        run: |
+          date="$REPORT_DATE"
+          n="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["report_no"])' "docs/reports/$date.json")"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/reports/
+          if git diff --cached --quiet; then
+            echo "no report changes"
+            exit 0
+          fi
+          git commit -m "docs(reports): 주간 오픈런 리포트 #$n $date"
+          git pull --rebase origin "${GITHUB_REF_NAME}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+      - name: Copy API log
+        if: always()
+        run: cp bootRun.log load/results/ || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: weekly-openrun-results
+          path: load/results/
+      - name: Stop compose core
+        if: always()
+        run: docker compose -f infra/compose/compose.yaml --profile core down -v

@@ -24,6 +24,7 @@
 
 ```
 apps/api                 Spring Boot 4 · Kotlin 조립. 설정, 스케줄러, 컨트롤러, 통합 테스트
+apps/web                 Next.js 화면 3페이지(대기열·좌석맵·결제결과) + 홈. npm, Vitest, Playwright. Gradle 빌드와 분리
 modules/support          공통: ids, clock, 결과형 타입. Spring 의존 없음
 modules/schema           Flyway 마이그레이션(리소스만)
 modules/domain-catalog   JPA: venue · show · showtime · seat · member
@@ -32,8 +33,9 @@ modules/domain-payment   JDBC: payment · payment_event_inbox · 상태머신
 modules/outbox           outbox 적재
 load/scenarios           봇 파라미터 yaml (공개, 복원 검증의 정답)
 load/k6                  k6 스크립트
-infra/compose            compose 프로필: core (postgres · redis)
-docs/reports             주간 리포트 아카이브. `_template.md`를 복사해 쓴다
+load/report              리포트 생성 스크립트(m1·m2 표, weekly_report.py 주간 리포트)
+infra/compose            compose 프로필: core (postgres · redis), demo (core + api + web 컨테이너)
+docs/reports             주간 리포트 아카이브. 토요일 weekly-openrun.yml이 `_template.md` 모양으로 자동 커밋, 서술 두 절은 사람이 채운다
 ```
 
 ## 명령
@@ -44,10 +46,12 @@ docs/reports             주간 리포트 아카이브. `_template.md`를 복사
 ./gradlew :apps:api:test --tests '*ArchitectureTest*'
 docker compose -f infra/compose/compose.yaml --profile core up -d --wait
 ./gradlew :apps:api:bootRun                       # localhost:8080, /api/ping, /actuator/health
-OPENRUN_PAYMENT_PG=toss ./gradlew :apps:api:bootRun  # 토스 실연동(.env에 테스트 키), /pay/index.html?reservationId=..&memberId=..
+OPENRUN_PAYMENT_PG=toss ./gradlew :apps:api:bootRun  # 토스 실연동(.env에 테스트 키). 결제 페이지(/reservations/{id})가 토스 위젯을 연다
+(cd apps/web && npm ci && npm run dev)            # 화면 localhost:3000. npm run lint|typecheck|test|build|e2e (e2e는 API 8080 필요)
 docker run --rm -i --network host grafana/k6 run - < load/k6/smoke.js   # k6 미설치 시
 # 대기열: POST /api/showtimes/{id}/queue → GET /api/showtimes/{id}/queue/me (Bearer 대기 토큰) → 입장 토큰으로 좌석 API
 load/bench-m2.sh                                  # M2 벤치(API 실행 중). M1 벤치는 OPENRUN_QUEUE_REQUIRE_ACCESS_TOKEN=false
+OPEN_DELAY_S=90 DURATION_S=60 MEMBERS=60 SETTLE_S=30 load/weekly-openrun.sh   # 주간 오픈런 축소 실행 → python3 load/report/weekly_report.py --date ...
 ```
 
 ## 코드 스타일
@@ -66,4 +70,4 @@ load/bench-m2.sh                                  # M2 벤치(API 실행 중). M
 
 ## 현재 단계
 
-M2 최소 대기열 진행 중 (ADR-0006). M1 리포트 #1은 2026-11-28(토).
+M4 화면·자동화 구현 완료(ADR-0008), 1차 남은 것은 공개 배포(호스팅은 사용자 결정). 주간 리포트는 토요일마다 자동 커밋되며 서술 두 절(배운 것·미해결)은 사람이 채운다. 리포트 #1 2026-11-28(토) 전 ADR-0005 기본 전략 확정.

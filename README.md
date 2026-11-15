@@ -6,7 +6,7 @@
 
 ## 상태
 
-2026-11-13 — M1 좌석 선점(락 전략 5종, ADR-0005), M2 최소 대기열(ZSET 순번·입장 스케줄러·JWT 입장 토큰, ADR-0006), M3 결제(PG 어댑터·Fake PG 고장 주입·웹훅 인박스·결제 janitor, ADR-0007) 구현. 첫 리포트 2026-11-28(토), 다음은 M4 화면과 주간 오픈런 자동화.
+2026-11-15 — M1 좌석 선점(락 전략 5종, ADR-0005), M2 최소 대기열(ZSET 순번·입장 스케줄러·JWT 입장 토큰, ADR-0006), M3 결제(PG 어댑터·Fake PG 고장 주입·웹훅 인박스·결제 janitor, ADR-0007), M4 화면 3페이지·주간 오픈런 자동 실행·리포트 자동 발행(ADR-0008) 구현. 매주 토요일 20:00 KST 주간 오픈런이 러너에서 돌고 `docs/reports/`에 리포트가 커밋된다. 공개 데모 URL은 호스팅 결정 뒤.
 
 ## 시작하기
 
@@ -15,10 +15,15 @@
 docker compose -f infra/compose/compose.yaml --profile core up -d --wait
 ./gradlew :apps:api:bootRun                                  # http://localhost:8080/api/ping
 docker run --rm -i --network host grafana/k6 run - < load/k6/smoke.js
-# 대기열: POST /api/showtimes/{id}/queue (X-Member-Id) → GET /api/showtimes/{id}/queue/me (Bearer 대기 토큰) → 입장 토큰으로 좌석 API
+(cd apps/web && npm ci && npm run dev)                       # 화면 http://localhost:3000 (API_BASE_URL 기본 localhost:8080, /api/* rewrite)
+# 여정: / → /showtimes/{id}/queue (대기열) → /showtimes/{id}/seats (SVG 좌석맵) → /reservations/{id} (결제·결과, 상태별 화면)
+# API만 쓰면: POST /api/showtimes/{id}/queue (X-Member-Id) → GET /queue/me (Bearer 대기 토큰) → 입장 토큰으로 좌석 API
+#            → POST /api/reservations/{id}/payments → 결제 인증(토스 위젯 또는 POST /api/fake-pg/payments) → POST /api/payments/confirm
+# 토스 실연동: .env.example을 .env로 복사해 테스트 키 입력, OPENRUN_PAYMENT_PG=toss로 API를 띄우면 결제 페이지가 토스 위젯을 연다
 load/bench-m2.sh                                             # M2 새로고침 폭풍 + 주간 오픈런 봇(결제 포함, OPENRUN_PAYMENT_PG=fake)
-# 결제(M3, ADR-0007): POST /api/reservations/{id}/payments → 결제 인증(토스 위젯 또는 POST /api/fake-pg/payments) → POST /api/payments/confirm
-# 토스 실연동: .env.example을 .env로 복사해 테스트 키 입력, OPENRUN_PAYMENT_PG=toss로 띄운 뒤 /pay/index.html?reservationId=..&memberId=..
+OPEN_DELAY_S=90 DURATION_S=60 MEMBERS=60 SETTLE_S=30 load/weekly-openrun.sh   # 주간 오픈런 축소 실행(API 실행 중)
+python3 load/report/weekly_report.py --date $(date +%F)      # 리포트 생성(토요일엔 weekly-openrun.yml이 자동 커밋)
+docker compose -f infra/compose/compose.yaml --profile demo up --build   # API + 화면 컨테이너(배포 단위)
 ```
 
 작업 규칙과 레포 구조는 `CLAUDE.md`.
@@ -30,8 +35,8 @@ load/bench-m2.sh                                             # M2 새로고침 �
 - `docs/requirements.md` — 요구사항 v1: 도메인 고정값(좌석 수·가격·TTL), 주간 운영 일정, 사용자 스토리와 수용 기준, 비기능 목표, 봇 시나리오 파라미터
 - `docs/glossary.md` — 용어집: 한글·코드 식별자·정의, 쓰지 않는 말
 - `docs/metrics.md` — 지표 정의: 단계별 지표의 수식·분모·측정 지점·목표
-- `docs/adr/` — ADR-0001 1차 범위 축소, ADR-0002 합성 데이터 한계, ADR-0003 JPA·JDBC 경계, ADR-0004 상태 전이 규칙, ADR-0005 좌석 재고 행과 락 전략, ADR-0006 대기열, ADR-0007 결제 어댑터와 Fake PG
-- `docs/reports/` — 주간 오픈런 리포트 아카이브 (`_template.md`)
+- `docs/adr/` — ADR-0001 1차 범위 축소, ADR-0002 합성 데이터 한계, ADR-0003 JPA·JDBC 경계, ADR-0004 상태 전이 규칙, ADR-0005 좌석 재고 행과 락 전략, ADR-0006 대기열, ADR-0007 결제 어댑터와 Fake PG, ADR-0008 화면·주간 오픈런 자동 실행·리포트 발행
+- `docs/reports/` — 주간 오픈런 리포트 아카이브: 매주 토요일 자동 발행(`README.md` 목록, `_template.md`, 러너 실행 기록 `runs/`)
 - `docs/research/01-reservation-queue-concurrency.md` — 예약·대기열·좌석 선점 동시성 오픈소스/레퍼런스
 - `docs/research/02-payment-commerce.md` — 결제·커머스: [payment-consistency-lab](https://github.com/jaehafe/payment-consistency-lab) 위에 무엇을 쌓을 것인가
 - `docs/research/03-data-ai-harness.md` — CDC/레이크하우스/리니지/시맨틱 레이어 + AI 평가 하네스, 채용 키워드
@@ -41,11 +46,11 @@ load/bench-m2.sh                                             # M2 새로고침 �
 | 릴리스 | 마일스톤 |
 |---|---|
 | 0 ✅ | 하네스: Gradle 멀티모듈, Boot 4 게이트 스모크, CLAUDE.md, ADR, CI, compose `core`, 요구사항·용어·지표 고정 |
-| 1차 | M1 좌석 선점 동시성 → M2 대기열과 공정성(사람 vs 매크로) → M3 결제(hold TTL ↔ 토스 10분 승인창, 웹훅 inbox, 취소수수료, 대기자 승계) → M4 화면 → 배포 + 주간 가상 오픈런 리포트 |
+| 1차 | M1 좌석 선점 ✅ → M2 대기열 ✅ → M3 결제(hold TTL ↔ 토스 10분 승인창, 웹훅 inbox) ✅ → M4 화면 3페이지 + 주간 오픈런 자동 실행 + 리포트 자동 발행 ✅ → 공개 배포(호스팅 결정 대기). 취소수수료·대기자 승계는 1.5차 |
 | 2차 | M5 오픈런 리플레이와 데이터 마트: Debezium Outbox → Kafka → DuckDB·dbt → Iceberg·Trino, Marquez 리니지, Evidence 리포트 |
 | 3차 | M6 AI 상황실과 평가 하네스: Spring AI 2.0, Langfuse, JUnit 평가셋, MCP 툴, 지표 정의 레이어 |
 | 선택 | 식당 슬롯 모델, Go 입장 게이트, Flink 실시간 뷰, 카카오페이 멀티 PG, GrowthBook 실험 |
 
 ## 스택
 
-Kotlin 2.4 · Spring Boot 4.1 · Gradle 9.7 · JDK 21 · PostgreSQL 17 · Redis 7 · Flyway · ShedLock · Bucket4j · Testcontainers 2 · ArchUnit · k6 · (2차) Kafka 4 KRaft · Debezium · DuckDB · dbt · (3차) Spring AI 2 · Langfuse · Next.js
+Kotlin 2.4 · Spring Boot 4.1 · Gradle 9.7 · JDK 21 · PostgreSQL 17 · Redis 7 · Flyway · ShedLock · Bucket4j · Testcontainers 2 · ArchUnit · k6 · Next.js(App Router, CSS 변수 토큰) · Playwright · GitHub Actions cron · (2차) Kafka 4 KRaft · Debezium · DuckDB · dbt · (3차) Spring AI 2 · Langfuse · Next.js

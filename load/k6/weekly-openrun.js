@@ -17,6 +17,9 @@
 //   SCENARIO               repo-relative yaml path, default load/scenarios/weekly-default.yaml
 //   RESULTS_DIR            default load/results
 //   AMOUNT_MISMATCH_RATE   default 0.01; share of payments that first send a confirm with amount + 1 (expects 400)
+//   SEATS_FILE             absolute path to the POST /api/admin/showtimes response ({seatIds: {grade: [id]}}); when
+//                          set, setup takes seat ids from it instead of walking the queue, so k6 can start at entry
+//                          open (19:50) before admission begins (load/weekly-openrun.sh)
 //
 //   k6 run -e BASE_URL=http://localhost:8080 -e SHOWTIME_ID=1 load/k6/weekly-openrun.js
 import http from 'k6/http';
@@ -59,6 +62,7 @@ const SEAT_CHOICE = scenario.seat_choice || { hot_ratio: 0, hot_pool: 0 };
 const FAKE_PG = scenario.fake_pg || { fault_mix: { NONE: 1 }, delay_seconds: 2 };
 const FAULTS = Object.keys(FAKE_PG.fault_mix);
 const AMOUNT_MISMATCH_RATE = Number(__ENV.AMOUNT_MISMATCH_RATE ?? 0.01);
+const SEATS = __ENV.SEATS_FILE ? JSON.parse(open(__ENV.SEATS_FILE)).seatIds : null;
 
 export const options = {
   scenarios: {
@@ -192,9 +196,17 @@ function poll(showtimeId, visitorToken) {
   });
 }
 
-/** Seat ids need an access token, so setup walks the queue once with a dedicated member (counted in `entered`). */
+/**
+ * Seat ids need an access token, so without SEATS_FILE setup walks the queue once with a dedicated member (counted in
+ * `entered`). With SEATS_FILE the ids come from the showtime creation response and no queue entry is made.
+ */
 export function setup() {
   let showtimeId = __ENV.SHOWTIME_ID ? Number(__ENV.SHOWTIME_ID) : null;
+  if (SEATS !== null && showtimeId !== null) {
+    const allPool = [].concat(...Object.values(SEATS));
+    const hotPool = (SEATS.VIP || []).slice().sort((a, b) => a - b).slice(0, SEAT_CHOICE.hot_pool);
+    return { showtimeId, allPool, hotPool };
+  }
   if (showtimeId === null) {
     const now = Date.now();
     const created = http.post(
