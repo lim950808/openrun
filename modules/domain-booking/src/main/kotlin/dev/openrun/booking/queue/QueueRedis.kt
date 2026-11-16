@@ -40,16 +40,34 @@ class QueueRedis(
         List::class.java,
     )
 
-    // Removes the head and records the admission in one step, so a poll never sees a member that is neither
-    // waiting nor admitted. Returns 0 when the member was no longer in the queue.
-    private val admitScript = DefaultRedisScript(
+    // One tick's decisions in one step (ADR-0006 §2-3). Abandons: ZREM + HDEL. Admits: ZREM, and only if that
+    // removed the member, HDEL + SET admitted key, so a poll never sees a member that is neither waiting nor
+    // admitted. KEYS = [queue, polled, admitted key per admit]; ARGV = [ttl, nAbandon, abandon ids...,
+    // (admit id, token)...]. Returns each ZREM result (0/1), abandons first, then admits.
+    private val applyScript = DefaultRedisScript(
         """
-        if redis.call('ZREM', KEYS[1], ARGV[1]) == 0 then return 0 end
-        redis.call('HDEL', KEYS[2], ARGV[1])
-        redis.call('SET', KEYS[3], ARGV[2], 'EX', ARGV[3])
-        return 1
+        local ttl = ARGV[1]
+        local nAbandon = tonumber(ARGV[2])
+        local results = {}
+        for i = 1, nAbandon do
+          local member = ARGV[2 + i]
+          local n = redis.call('ZREM', KEYS[1], member)
+          redis.call('HDEL', KEYS[2], member)
+          results[#results + 1] = n
+        end
+        local base = 2 + nAbandon
+        for i = 1, #KEYS - 2 do
+          local member = ARGV[base + 2 * i - 1]
+          local n = redis.call('ZREM', KEYS[1], member)
+          if n == 1 then
+            redis.call('HDEL', KEYS[2], member)
+            redis.call('SET', KEYS[2 + i], ARGV[base + 2 * i], 'EX', ttl)
+          end
+          results[#results + 1] = n
+        end
+        return results
         """.trimIndent(),
-        Long::class.java,
+        List::class.java,
     )
 
     private val abandonScript = DefaultRedisScript(
@@ -83,20 +101,34 @@ class QueueRedis(
     fun lastPolled(showtimeId: Long, memberId: Long): Instant? =
         redis.opsForHash<String, String>().get(polledKey(showtimeId), memberId.toString())?.let { Instant.ofEpochMilli(it.toLong()) }
 
-    /** Lowest-score member without removing it. Only the single admission scheduler (ShedLock) removes members. */
-    fun head(showtimeId: Long): QueueHead? =
-        redis.opsForZSet().rangeWithScores(queueKey(showtimeId), 0, 0)?.firstOrNull()?.let {
-            QueueHead(it.value!!.toLong(), it.score!!.toLong())
-        }
+    /**
+     * The first [limit] members by score (ZRANGE 0 limit-1 WITHSCORES), without removing them. Only the single
+     * admission scheduler (ShedLock) removes members, so looking first and removing later is safe.
+     */
+    fun headCandidates(showtimeId: Long, limit: Long): List<QueueHead> =
+        redis.opsForZSet().rangeWithScores(queueKey(showtimeId), 0, limit - 1).orEmpty()
+            .map { QueueHead(it.value!!.toLong(), it.score!!.toLong()) }
 
-    fun admit(showtimeId: Long, memberId: Long, accessToken: String, ttl: Duration): Boolean =
-        redis.execute(
-            admitScript,
-            listOf(queueKey(showtimeId), polledKey(showtimeId), admittedKey(showtimeId, memberId)),
-            memberId.toString(),
-            accessToken,
-            ttl.toSeconds().toString(),
-        ) == 1L
+    /** memberId → last poll time for [memberIds], one HMGET. Members that never polled are absent. */
+    fun lastPolledAll(showtimeId: Long, memberIds: List<Long>): Map<Long, Instant> {
+        if (memberIds.isEmpty()) return emptyMap()
+        val values = redis.opsForHash<String, String>().multiGet(polledKey(showtimeId), memberIds.map { it.toString() })
+        return memberIds.zip(values).mapNotNull { (id, v) -> v?.let { id to Instant.ofEpochMilli(it.toLong()) } }.toMap()
+    }
+
+    /**
+     * Applies one tick's decisions with one Lua call. [admits] is (memberId, access token). Returns, abandons first
+     * and then admits in the given order, whether each member was still in the queue (ZREM 1).
+     */
+    fun applyDecisions(showtimeId: Long, abandons: List<Long>, admits: List<Pair<Long, String>>, ttl: Duration): List<Boolean> {
+        if (abandons.isEmpty() && admits.isEmpty()) return emptyList()
+        val keys = listOf(queueKey(showtimeId), polledKey(showtimeId)) + admits.map { admittedKey(showtimeId, it.first) }
+        val args = listOf(ttl.toSeconds().toString(), abandons.size.toString()) +
+            abandons.map { it.toString() } +
+            admits.flatMap { (memberId, token) -> listOf(memberId.toString(), token) }
+        val result = redis.execute(applyScript, keys, *args.toTypedArray())
+        return result.map { it == 1L }
+    }
 
     fun abandon(showtimeId: Long, memberId: Long): Boolean =
         redis.execute(abandonScript, listOf(queueKey(showtimeId), polledKey(showtimeId)), memberId.toString()) == 1L

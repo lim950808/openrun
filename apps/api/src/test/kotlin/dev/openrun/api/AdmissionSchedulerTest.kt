@@ -6,6 +6,7 @@ import dev.openrun.booking.queue.QueueIntegrityQuery
 import dev.openrun.booking.queue.QueueRedis
 import dev.openrun.booking.queue.QueueService
 import dev.openrun.booking.queue.QueueStatus
+import io.micrometer.core.instrument.MeterRegistry
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
@@ -13,13 +14,16 @@ import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc
 import org.springframework.context.annotation.Import
 import org.springframework.jdbc.core.JdbcTemplate
+import org.springframework.test.web.servlet.assertj.MockMvcTester
 import java.time.Duration
 import java.time.Instant
+import java.time.OffsetDateTime
 import java.util.concurrent.atomic.AtomicLong
 
 /**
  * ADR-0006 §2 with test properties: 5 admissions per second, abandon after 2 s. One showtime per test, so each test
- * has its own Bucket4j bucket. (`@AutoConfigureMockMvc` only to share the cached context with the HTTP tests.)
+ * has its own Bucket4j bucket. (`@AutoConfigureMockMvc` shares the cached context with the HTTP tests and serves the
+ * diagnostics endpoint check.)
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -31,6 +35,8 @@ class AdmissionSchedulerTest @Autowired constructor(
     private val queueRedis: QueueRedis,
     private val integrity: QueueIntegrityQuery,
     private val jdbc: JdbcTemplate,
+    private val registry: MeterRegistry,
+    private val mvc: MockMvcTester,
 ) {
     private val members = AtomicLong(System.nanoTime() % 1_000_000_000 + 4_000_000_000)
 
@@ -176,6 +182,94 @@ class AdmissionSchedulerTest @Autowired constructor(
                 st.first,
             ),
         ).isZero()
+    }
+
+    @Test
+    fun `M2_2 이탈자와 입장자가 섞인 머리 N명을 한 틱에 꺼내도 순서와 예산이 같다`() {
+        val st = showtime(Instant.now().minusSeconds(1))
+        val polls = listOf(false, true, false, true, true, false, true, true, true)
+        val entered = polls.map { enterAll(st, 1).single() }
+        val silent = entered.filterIndexed { i, _ -> !polls[i] }
+        val polling = entered.filterIndexed { i, _ -> polls[i] }
+        repeat(3) {
+            Thread.sleep(900)
+            polling.forEach { queue.me(st.first, it) }
+        }
+
+        val result = scheduler.tick()
+
+        // Budget 5: the walk stops at the fifth poller, so the sixth stays waiting. Every silent member is ahead of
+        // the fifth poller and is abandoned without using budget.
+        assertThat(result.admitted[st.first]).isEqualTo(5)
+        assertThat(result.abandoned[st.first]).isEqualTo(3)
+        assertThat(admittedInOrder(st.first)).isEqualTo(polling.take(5))
+        val seqs = jdbc.queryForList(
+            "select admitted_seq from queue_admission where showtime_id = ? and admitted_at is not null order by entered_at",
+            Long::class.java,
+            st.first,
+        )
+        assertThat(seqs).hasSize(5).isSorted().doesNotHaveDuplicates()
+        val abandonedRows = jdbc.queryForList(
+            "select member_id from queue_admission where showtime_id = ? and abandoned_at is not null order by entered_at",
+            Long::class.java,
+            st.first,
+        )
+        assertThat(abandonedRows).isEqualTo(silent)
+        assertThat(queueRedis.waitingCount(st.first)).isEqualTo(1)
+        assertThat(queue.me(st.first, polling.last())).isEqualTo(QueueStatus.Waiting(0))
+        assertThat(polling.take(5).map { queue.me(st.first, it) }).allMatch { it is QueueStatus.Admitted }
+        val events = jdbc.query(
+            """
+            select o.event_type, count(*) from outbox o join queue_admission q on o.aggregate_id = q.id::text
+            where o.aggregate_type = 'queue_admission' and q.showtime_id = ? group by o.event_type order by o.event_type
+            """.trimIndent(),
+            { rs, _ -> rs.getString(1) to rs.getLong(2) },
+            st.first,
+        )
+        assertThat(events).containsExactly("QueueAbandoned" to 3L, "QueueAdmitted" to 5L, "QueueEntered" to 9L)
+        val q = integrity.check(st.first)
+        assertThat(q.fifoViolationRate).isEqualTo(0.0)
+        assertThat(q.lost).isZero()
+    }
+
+    @Test
+    fun `M2 행 없는 대기 회원은 ZSET 점수로 행을 만들어 기록한다`() {
+        val st = showtime(Instant.now().minusSeconds(1))
+        val member = members.incrementAndGet()
+        // ZADD succeeded but the entry's DB insert did not (ADR-0006 §2-4).
+        val enqueued = queueRedis.enqueue(st.first, member)
+
+        val result = scheduler.tick()
+
+        assertThat(result.admitted[st.first]).isEqualTo(1)
+        val rows = jdbc.query(
+            "select entered_at, admitted_at from queue_admission where showtime_id = ? and member_id = ?",
+            { rs, _ -> rs.getObject("entered_at", OffsetDateTime::class.java).toInstant() to rs.getObject("admitted_at", OffsetDateTime::class.java) },
+            st.first,
+            member,
+        )
+        assertThat(rows).hasSize(1)
+        assertThat(rows.single().first).isEqualTo(enqueued.enteredAt)
+        assertThat(rows.single().second).isNotNull()
+        assertThat(queue.me(st.first, member)).isInstanceOf(QueueStatus.Admitted::class.java)
+    }
+
+    @Test
+    fun `M2 틱 타이머가 기록된다`() {
+        val st = showtime(Instant.now().minusSeconds(1))
+        enterAll(st, 2)
+
+        scheduler.tick()
+
+        val total = registry.find(AdmissionScheduler.TICK_METRIC).tag("phase", AdmissionScheduler.PHASE_TOTAL).timer()
+        assertThat(total).isNotNull()
+        assertThat(total!!.count()).isGreaterThanOrEqualTo(1)
+        for (phase in listOf(AdmissionScheduler.PHASE_REDIS_READ, AdmissionScheduler.PHASE_REDIS_WRITE, AdmissionScheduler.PHASE_DB_WRITE)) {
+            assertThat(registry.find(AdmissionScheduler.TICK_METRIC).tag("phase", phase).timer()).isNotNull()
+        }
+        val body = assertThat(mvc.get().uri("/api/admin/diagnostics/queue-ticks")).hasStatusOk().bodyJson()
+        body.extractingPath("$.phases.total.count").asNumber().satisfies({ assertThat(it.toLong()).isGreaterThanOrEqualTo(1) })
+        body.extractingPath("$.phases.db_write.p99_ms").isNotNull()
     }
 
     @Test

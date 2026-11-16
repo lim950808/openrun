@@ -8,16 +8,18 @@ class OutboxJdbcRepository(
     private val jdbc: JdbcTemplate,
 ) {
     fun append(e: OutboxEvent) {
-        jdbc.update(
+        appendAll(listOf(e))
+    }
+
+    /** One JDBC batch; the caller's transaction (if any) covers all of them. */
+    fun appendAll(events: List<OutboxEvent>) {
+        if (events.isEmpty()) return
+        jdbc.batchUpdate(
             """
             insert into outbox (aggregate_type, aggregate_id, event_type, event_id, payload)
             values (?, ?, ?, ?, ?::jsonb)
             """.trimIndent(),
-            e.aggregateType,
-            e.aggregateId,
-            e.eventType,
-            e.eventId,
-            e.payload,
+            events.map { e -> arrayOf<Any?>(e.aggregateType, e.aggregateId, e.eventType, e.eventId, e.payload) },
         )
     }
 }

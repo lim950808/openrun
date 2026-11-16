@@ -3,11 +3,12 @@
 
 Inputs (all optional; a missing input prints n/a and, for the benches, a note under the header):
   --weekly     load/weekly-openrun.sh results: newest weekly-run-*.json and the files with its stamp
-               (weekly-integrity · weekly-queue-integrity · weekly-payment-integrity · weekly-illegal-transition),
+               (weekly-integrity · weekly-queue-integrity · weekly-payment-integrity · weekly-illegal-transition ·
+               weekly-ticks),
                plus its k6 summary m2-weekly-*.json
   --bench-m1   bench-m1-results artifact: m1-<STRATEGY>-*.json, m1-burst-<STRATEGY>-*.json (load/report/m1_report.py)
   --bench-m2   bench-m2-results artifact: m2-storm-*, m2-weekly-*, m2-integrity-storm-*, m2-integrity-weekly-*,
-               m3-payment-integrity-weekly-*.json (load/report/m2_report.py)
+               m2-ticks-weekly-*, m3-payment-integrity-weekly-*.json (load/report/m2_report.py)
 Rules (docs/metrics.md): performance = bench median (min~max), counts = bench sum and the weekly open run apart,
 zero denominators print n/a. Narrative sections stay `> 직접 작성`; no number here is anything but a copied input.
 
@@ -25,7 +26,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from m1_report import STRATEGIES, load_runs, values  # noqa: E402
-from m2_report import fmt, latest  # noqa: E402
+from m2_report import fmt, latest, tick_p99  # noqa: E402
 
 NA = "n/a"
 KST = datetime.timezone(datetime.timedelta(hours=9))
@@ -103,6 +104,7 @@ def load_weekly(d):
         "integrity": read_json(os.path.join(d, f"weekly-integrity-{stamp}.json")),
         "queue": read_json(os.path.join(d, f"weekly-queue-integrity-{stamp}.json")),
         "payment": read_json(os.path.join(d, f"weekly-payment-integrity-{stamp}.json")),
+        "ticks": read_json(os.path.join(d, f"weekly-ticks-{stamp}.json")),
         "illegal_transition_count": int(count) if count is not None else None,
     }
 
@@ -150,6 +152,7 @@ def main():
     w = load_weekly(args.weekly)
     meta, k6 = w.get("meta", {}), w.get("k6", {})
     wi, wq, wp = w.get("integrity", {}), w.get("queue", {}), w.get("payment", {})
+    wt = w.get("ticks", {})
 
     m1_dir = args.bench_m1 if args.bench_m1 and os.path.isdir(args.bench_m1) else None
     arrival = load_runs(os.path.join(m1_dir, "m1-*.json"), exclude_prefix=("m1-burst-", "m1-phases-")) if m1_dir else {}
@@ -159,6 +162,7 @@ def main():
     b2k6 = latest(m2_dir, "m2-weekly-*.json") if m2_dir else {}
     b2q = latest(m2_dir, "m2-integrity-weekly-*.json") if m2_dir else {}
     b2p = latest(m2_dir, "m3-payment-integrity-weekly-*.json") if m2_dir else {}
+    b2t = latest(m2_dir, "m2-ticks-weekly-*.json") if m2_dir else {}
 
     strategy_env = os.environ.get("OPENRUN_HOLD_STRATEGY")
     strategy = strategy_env or DEFAULT_STRATEGY
@@ -253,12 +257,14 @@ def main():
         "fifo_violation_rate": (wq.get("fifo_violation_rate"), b2q.get("fifo_violation_rate")),
         "admission_delay_p50_s": (wq.get("admission_delay_p50_s"), b2q.get("admission_delay_p50_s")),
         "admission_delay_p99_s": (wq.get("admission_delay_p99_s"), b2q.get("admission_delay_p99_s")),
+        "admission_tick_p99_ms": (tick_p99(wt), tick_p99(b2t)),
         "admission_rate_actual": (wq.get("admission_rate_actual"), b2q.get("admission_rate_actual")),
         "rank_drift_count": (k6.get("rank_drift_count"), storm.get("rank_drift_count")),
     }
     for name, (wv, b) in queue.items():
         out[f"{name}_weekly"] = wv
         out[f"{name}_bench"] = b
+    out["admission_tick_p99_ms"] = queue["admission_tick_p99_ms"][0]
 
     # --- 결제
     faults = k6.get("faults_injected") or {}
@@ -417,6 +423,7 @@ def main():
         f"| `admission_delay_p50_s` / `p99_s` | {fmt(queue['admission_delay_p50_s'][0])} / "
         f"{fmt(queue['admission_delay_p99_s'][0])} (벤치 {fmt(queue['admission_delay_p50_s'][1])} / "
         f"{fmt(queue['admission_delay_p99_s'][1])}) | | 보고 |",
+        f"| `admission_tick_p99_ms` | {wb(*queue['admission_tick_p99_ms'])} | | ≤ 500 |",
         f"| `admission_rate_actual` | {wb(*queue['admission_rate_actual'])} | {fmt(admissions_cfg)}/s | 설정값 ±5% |",
         f"| `rank_drift_count` | {wb(*queue['rank_drift_count'])} | | 0 |",
         "",

@@ -114,6 +114,8 @@ done
 k6_args=(run --quiet -e "BASE_URL=$K6_BASE_URL" -e "SHOWTIME_ID=$SHOWTIME_ID" -e "DURATION_S=$DURATION_S"
   -e "ADMISSIONS_PER_SECOND=$ADMISSIONS_PER_SECOND" -e "SCENARIO=$SCENARIO")
 if [[ -n "$MEMBERS" ]]; then k6_args+=(-e "MEMBERS=$MEMBERS"); fi
+# Admission tick times (openrun.queue.tick) for this run only; saved after the settle as weekly-ticks.
+curl -sf "$BASE_URL/api/admin/diagnostics/queue-ticks?reset=true" > /dev/null || echo "queue-ticks reset failed"
 K6_STARTED_AT="$(now_iso)"
 echo "=== k6 weekly-openrun.js from $K6_STARTED_AT: ${MEMBERS:-yaml} members over ${DURATION_S}s ($K6_BASE_URL)"
 status=0
@@ -138,6 +140,7 @@ fetch() {
 fetch "/api/admin/showtimes/$SHOWTIME_ID/integrity" "$RESULTS_ABS/weekly-integrity-$STAMP.json"
 fetch "/api/admin/showtimes/$SHOWTIME_ID/queue-integrity" "$RESULTS_ABS/weekly-queue-integrity-$STAMP.json"
 fetch "/api/admin/showtimes/$SHOWTIME_ID/payment-integrity" "$RESULTS_ABS/weekly-payment-integrity-$STAMP.json"
+fetch "/api/admin/diagnostics/queue-ticks" "$RESULTS_ABS/weekly-ticks-$STAMP.json"
 # Process-wide counter, registered on first increment: 404 means it never fired, i.e. 0.
 ILLEGAL="$RESULTS_ABS/weekly-illegal-transition-$STAMP.json"
 code="$(curl -sS -o "$ILLEGAL.tmp" -w '%{http_code}' "$BASE_URL/actuator/metrics/openrun.api.errors?tag=code:ILLEGAL_TRANSITION" || true)"

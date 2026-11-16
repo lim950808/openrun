@@ -2,7 +2,8 @@
 # M2+M3 weekly benchmark: (1) refresh storm (load/k6/queue-storm.js) and (2) the weekly open run bot
 # (load/k6/weekly-openrun.js, queue -> hold -> payment through the Fake PG), each on a fresh showtime that opens
 # OPEN_DELAY_S after creation (entry is already open, admission starts then). After each run the showtime's
-# queue-integrity (and, for the weekly run, payment-integrity) is saved, then the report prints.
+# queue-integrity (and, for the weekly run, payment-integrity) is saved, along with the admission scheduler's tick
+# times for that run (GET /api/admin/diagnostics/queue-ticks, reset before each run), then the report prints.
 #
 #   usage: load/bench-m2.sh
 #   env:   BASE_URL (default http://localhost:8080), OPEN_DELAY_S (default 20)
@@ -71,14 +72,18 @@ STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 
 STORM_ID="$(new_showtime)"
 echo "=== storm showtime $STORM_ID: $VUS VUs x ${STORM_DURATION_S}s ($K6_BASE_URL)"
+curl -sf "$BASE_URL/api/admin/diagnostics/queue-ticks?reset=true" > /dev/null
 run_k6 load/k6/queue-storm.js -e "SHOWTIME_ID=$STORM_ID" -e "VUS=$VUS" -e "DURATION_S=$STORM_DURATION_S"
 curl -fsS "$BASE_URL/api/admin/showtimes/$STORM_ID/queue-integrity" > "load/results/m2-integrity-storm-$STAMP.json"
+curl -fsS "$BASE_URL/api/admin/diagnostics/queue-ticks" > "load/results/m2-ticks-storm-$STAMP.json"
 
 WEEKLY_ID="$(new_showtime)"
 echo "=== weekly showtime $WEEKLY_ID: $MEMBERS members over ${DURATION_S}s ($K6_BASE_URL)"
+curl -sf "$BASE_URL/api/admin/diagnostics/queue-ticks?reset=true" > /dev/null
 run_k6 load/k6/weekly-openrun.js -e "SHOWTIME_ID=$WEEKLY_ID" -e "DURATION_S=$DURATION_S" -e "MEMBERS=$MEMBERS" \
   -e "ADMISSIONS_PER_SECOND=$ADMISSIONS_PER_SECOND"
 curl -fsS "$BASE_URL/api/admin/showtimes/$WEEKLY_ID/queue-integrity" > "load/results/m2-integrity-weekly-$STAMP.json"
+curl -fsS "$BASE_URL/api/admin/diagnostics/queue-ticks" > "load/results/m2-ticks-weekly-$STAMP.json"
 echo "=== waiting ${SETTLE_S}s for the payment janitor"
 sleep "$SETTLE_S"
 curl -fsS "$BASE_URL/api/admin/showtimes/$WEEKLY_ID/payment-integrity" > "load/results/m3-payment-integrity-weekly-$STAMP.json"

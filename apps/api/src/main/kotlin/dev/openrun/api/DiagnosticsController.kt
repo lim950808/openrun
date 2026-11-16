@@ -2,6 +2,7 @@ package dev.openrun.api
 
 import dev.openrun.booking.hold.HoldService
 import dev.openrun.booking.hold.LockStrategy
+import dev.openrun.booking.queue.AdmissionScheduler
 import io.micrometer.core.instrument.MeterRegistry
 import io.micrometer.core.instrument.Timer
 import org.springframework.scheduling.annotation.Scheduled
@@ -19,6 +20,9 @@ import java.util.concurrent.atomic.AtomicLong
  *   right after it, so the burst run and earlier runs of the same strategy are not mixed in.
  * - Hikari acquire is process-wide (no strategy tag) and its percentiles are a 2~3 min window (application.yml).
  * - `hikari_pending_max` is the max of `hikaricp.connections.pending` sampled every 100 ms since the last reset.
+ *
+ * Also the admission scheduler's tick time per phase (`openrun.queue.tick`, ADR-0006 §2-5) for bench-m2.sh and
+ * weekly-openrun.sh; `reset=true` works the same way.
  */
 @RestController
 class DiagnosticsController(
@@ -49,6 +53,14 @@ class DiagnosticsController(
         )
         if (reset) timers.forEach { registry.remove(it) }
         return result
+    }
+
+    @GetMapping("/api/admin/diagnostics/queue-ticks")
+    fun queueTicks(@RequestParam(defaultValue = "false") reset: Boolean): Map<String, Any?> {
+        val timers = registry.find(AdmissionScheduler.TICK_METRIC).timers()
+        val phases = timers.sortedBy { it.id.getTag("phase") }.associate { it.id.getTag("phase") to summary(it) }
+        if (reset) timers.forEach { registry.remove(it) }
+        return linkedMapOf("phases" to phases)
     }
 
     private fun summary(timer: Timer): Map<String, Any?> = linkedMapOf(

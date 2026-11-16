@@ -3,7 +3,8 @@
 
 Reads the newest m2-storm-*.json / m2-weekly-*.json (k6 handleSummary exports),
 m2-integrity-storm-*.json / m2-integrity-weekly-*.json (GET /api/admin/showtimes/{id}/queue-integrity) and
-m3-payment-integrity-weekly-*.json (GET /api/admin/showtimes/{id}/payment-integrity).
+m3-payment-integrity-weekly-*.json (GET /api/admin/showtimes/{id}/payment-integrity) and
+m2-ticks-storm-*.json / m2-ticks-weekly-*.json (GET /api/admin/diagnostics/queue-ticks).
 Missing data prints n/a.
 
 usage: load/report/m2_report.py [--results load/results] [--label TEXT] [--out path.md]
@@ -21,6 +22,11 @@ def latest(results, pattern):
         return {}
     with open(files[-1]) as f:
         return json.load(f)
+
+
+def tick_p99(ticks):
+    """`phases.total.p99_ms` of a queue-ticks snapshot; None when missing."""
+    return ((ticks.get("phases") or {}).get("total") or {}).get("p99_ms")
 
 
 def fmt(v, digits=1, pct=False):
@@ -45,6 +51,8 @@ def main():
     istorm = latest(args.results, "m2-integrity-storm-*.json")
     iweekly = latest(args.results, "m2-integrity-weekly-*.json")
     pay = latest(args.results, "m3-payment-integrity-weekly-*.json")
+    tstorm = latest(args.results, "m2-ticks-storm-*.json")
+    tweekly = latest(args.results, "m2-ticks-weekly-*.json")
     if not (storm or weekly or istorm or iweekly or pay):
         print(f"no m2 results in {args.results}", file=sys.stderr)
         return 1
@@ -57,6 +65,7 @@ def main():
         ("admission_rate_actual", fmt(istorm.get("admission_rate_actual")), fmt(iweekly.get("admission_rate_actual")), "설정값 ±5%"),
         ("admission_delay_p50_s", fmt(istorm.get("admission_delay_p50_s")), fmt(iweekly.get("admission_delay_p50_s")), "보고만"),
         ("admission_delay_p99_s", fmt(istorm.get("admission_delay_p99_s")), fmt(iweekly.get("admission_delay_p99_s")), "보고만"),
+        ("admission_tick_p99_ms", fmt(tick_p99(tstorm)), fmt(tick_p99(tweekly)), "≤ 500"),
         ("unauthorized_seat_calls", fmt(istorm.get("unauthorized_seat_calls")), fmt(iweekly.get("unauthorized_seat_calls")), "보고만"),
         ("entered / admitted / abandoned / waiting / lost",
          " / ".join(fmt(istorm.get(k)) for k in ("entered", "admitted", "abandoned", "waiting", "lost")),
