@@ -27,3 +27,6 @@ apps/web/playwright-report/
 apps/web/test-results/
 apps/web/next-env.d.ts
 apps/web/*.tsbuildinfo
+
+# agent worktrees
+.claude/worktrees/
