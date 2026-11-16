@@ -15,7 +15,7 @@
 | 공연장 좌석 | 1,500석 = VIP 300 · R 600 · S 600 | 국내 중형 공연장 규모. 봇 10,000명 대비 경쟁률 약 6.7:1 |
 | 좌석 가격 | VIP 150,000원 · R 120,000원 · S 90,000원 | 매출 손실 추정의 가격 스냅샷 |
 | 1인 최대 매수 | 1회 예약당 2석, 1인당 활성 예약(HOLDING·PAYING) 1건 | 1.5차 봇 방어에서 상한 재조정 |
-| 락 전략 | 5종: `NAIVE` · `FOR_UPDATE` · `SKIP_LOCKED` · `CONDITIONAL_UPDATE` · `REDIS_LUA` | M1 비교 대상. 기본 전략은 ADR-0005에서 결정 |
+| 락 전략 | 5종: `NAIVE` · `FOR_UPDATE` · `SKIP_LOCKED` · `CONDITIONAL_UPDATE` · `REDIS_LUA` (+ 실험 변형 `REDIS_LUA_OUTSIDE_TX`, ADR-0005 §7) | M1 비교 대상. 기본 전략은 ADR-0005에서 결정 |
 | hold TTL | 12분, 연장 없음. 단 결제 진행 중(PAYING + CONFIRMING·UNKNOWN)인 예약은 만료 시각이 지나도 janitor가 풀지 않는다 | 토스 승인창 10분 + 결제위젯 진입까지 2분 여유. 자세한 정합은 ADR-0004 |
 | 오픈 시각 | 매주 토요일 20:00 KST | 리포트 주기와 동일 |
 | 대기열 진입 허용 | 오픈 10분 전(19:50)부터 | 진입 시각 분포를 넓혀 FIFO 측정을 의미 있게 |

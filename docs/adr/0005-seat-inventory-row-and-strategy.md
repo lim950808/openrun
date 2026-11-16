@@ -67,6 +67,22 @@ select count(*) from (
 
 러너 2차 실행([기록](../reports/runs/2026-11-12-bench-m1.md))에서 DB 전략 네 개는 p99 161~194ms로 목표 안이고 REDIS_LUA만 506ms다. 단계별 타이머로 보면 REDIS_LUA의 `hold()` 내부는 25ms로 같고, 차이는 Hikari 커넥션 대기(p99 319ms)다. 현재 구현은 예약 INSERT로 DB 트랜잭션을 연 뒤 Redis 스크립트를 부르므로 Redis 왕복(평균 6ms)만큼 커넥션을 더 오래 잡는다. "Redis로 경합을 판정하면 DB가 가벼워진다"는 통념과 반대로, **DB 트랜잭션 안에서 외부 왕복을 하면 커넥션 풀이 먼저 병목이 된다**. 기본 전략 확정 전에 (a) Redis 판정을 트랜잭션 밖으로 옮긴 변형, (b) 풀 크기 변경을 같은 러너에서 비교한다. 이 관찰은 §5의 기준 중 "DB만으로 되는 전략 우선"을 뒷받침한다.
 
+### 7. 실험 변형 `REDIS_LUA_OUTSIDE_TX` (2026-11-16, §6의 (a))
+
+§6의 가설("병목은 Redis가 아니라 DB 트랜잭션 안의 Redis 왕복")을 재기 위해 `REDIS_LUA`에서 **Redis 왕복만 트랜잭션 밖으로** 옮긴 변형을 여섯 번째 전략 값으로 둔다. 기본 전략 후보가 아니라 비교 실험용이다. 리포트 #1에서 `REDIS_LUA`와 나란히 싣고 §5 기준으로 판정한 뒤 남길지 지울지 정한다.
+
+| 단계 | `REDIS_LUA` | `REDIS_LUA_OUTSIDE_TX` |
+|---|---|---|
+| 예약 id | 트랜잭션 안 `INSERT … RETURNING id` | 트랜잭션 **전에** `select nextval(pg_get_serial_sequence('reservation', 'id'))` (오토커밋, 커넥션을 바로 돌려준다) |
+| Redis 판정 | 트랜잭션 안(INSERT 뒤). 키 `PX` = `expires_at − now` | 트랜잭션 **전**. 소유값은 미리 받은 예약 id, `PX` = `hold.ttl + 1초`. 행의 `expires_at`는 몇 ms 뒤 INSERT에서 정해지므로 키가 행보다 먼저 사라지지 않게 여유를 둔다. 만료·취소 훅이 키를 지우므로 여유분이 남는 일은 훅 실패 때만 있다 |
+| DB 쓰기 | INSERT reservation → `seat_hold` UPDATE → `reservation_seat` → outbox, 한 트랜잭션 | 같은 순서, 한 트랜잭션. INSERT는 `id`를 직접 넣는다(`overriding system value`) |
+| 실패 시 | 트랜잭션 동기화 `afterCompletion`에서 키 삭제 | Redis 판정 실패 → DB를 열지 않고 `SEAT_TAKEN`. 트랜잭션이 롤백되면(`ACTIVE_RESERVATION_EXISTS`, 예외) 트랜잭션 밖에서 키 삭제 |
+| 결제·janitor 훅 | 소유값 = 예약 id로 `pin`·`unpin`·`release` | 같다. 키 이름·소유값이 같으므로 훅은 바뀌지 않는다 |
+
+- 다른 다섯 전략의 SQL·트랜잭션 경계·단계 타이머는 바뀌지 않는다. `HoldService.hold`는 트랜잭션 밖 진입점이 되고, 전략이 "트랜잭션 전 단계"를 가질 수 있도록 `SeatClaimStrategy`에 선택 단계가 생긴다. 트랜잭션 안에서는 `REDIS_LUA`와 같이 `seat_hold` 행 존재만 확인하고(비어 있음 판정은 Redis가 끝냈다) UPDATE한다.
+- 단계 타이머에 `id_alloc`(nextval)이 추가되고 `redis_script`는 트랜잭션 밖에서 기록된다. `total`은 두 전략 모두 메서드 진입부터 커밋 직전까지다.
+- 리포트 #1에서 볼 것: `hold_p99_ms`와 `hikari_acquire_p99_ms`가 DB 전략 수준(p99 160~190ms, 대기 30~70ms)으로 내려오고 `oversell_*`가 0인지. 내려오면 §6의 설명이 맞고, 그래도 §5-3 기준으로 DB 전략을 우선한다. 안 내려오면 §6의 (b) 풀 크기 실험으로 넘어간다.
+
 ## 대안과 기각 이유
 
 | 대안 | 기각 이유 |
@@ -84,6 +100,7 @@ select count(*) from (
 
 ## 증명
 
-- `HoldConcurrencyTest`: 전략 5종 × 64스레드 동시 요청. NAIVE만 `oversell_count ≥ 1`, 나머지 0 (M1-3)
+- `HoldConcurrencyTest`: 전략 5종 + 변형 `REDIS_LUA_OUTSIDE_TX` × 64스레드 동시 요청. NAIVE만 `oversell_count ≥ 1`, 나머지 0 (M1-3)
+- `HoldExpiryTest`: `REDIS_LUA_OUTSIDE_TX`가 `SEAT_TAKEN`·`ACTIVE_RESERVATION_EXISTS`로 끝나면 Redis 키가 남지 않음 (§7)
 - `HoldExpiryTest`: lazy expiry와 janitor sweep (M1-2)
 - 리포트 #1 전략 비교 표: `load/report/m1_report.py` 출력 (`.github/workflows/bench-m1.yml`, 토 10:00 KST)

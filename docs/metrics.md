@@ -25,7 +25,7 @@
 | `hold_conflict_rate` | 좌석 충돌로 거부된 비율. 오류 코드 `SEAT_TAKEN`만 센다(활성 예약 중복 `ACTIVE_RESERVATION_EXISTS`, `ILLEGAL_TRANSITION`은 제외) | `SEAT_TAKEN` 응답 / 전체 hold 요청 | k6 | 보고만 |
 | `expire_lag_s` | `expires_at`부터 janitor가 예약을 EXPIRED로 쓴 시각까지 지연 p99 (좌석은 파생 상태라 `expires_at`에 즉시 AVAILABLE이 되지만, 이벤트와 Redis 키 정리는 janitor가 한다). 실행 종료 시점의 잔여는 `expire_backlog_max_s` | 없음 | app (janitor 로그, integrity) | 60 이하 |
 | `illegal_transition_count` | 허용되지 않은 상태 전이 요청으로 409를 반환한 수 | 없음 | app | 보고만 (봇 시나리오 주입량과 비교) |
-| `strategy` | 이번 실행의 락 전략 (`NAIVE`·`FOR_UPDATE`·`SKIP_LOCKED`·`CONDITIONAL_UPDATE`·`REDIS_LUA`) | 차원 | 시나리오 | 리포트 표의 행 |
+| `strategy` | 이번 실행의 락 전략 (`NAIVE`·`FOR_UPDATE`·`SKIP_LOCKED`·`CONDITIONAL_UPDATE`·`REDIS_LUA`, 실험 변형 `REDIS_LUA_OUTSIDE_TX`는 ADR-0005 §7) | 차원 | 시나리오 | 리포트 표의 행 |
 
 ## M2 대기열
 
@@ -35,6 +35,7 @@
 | `fifo_violation_rate` | 입장된 회원 중, 자신보다 늦게 진입한 회원이 먼저 입장한 경우의 비율. 진입 순서는 `entered_at`(ZSET 점수), 입장 순서는 `admitted_seq` | 위반 회원 수 / 입장 회원 수 | app (`GET /api/admin/showtimes/{id}/queue-integrity`) | 1% 이하 (구조상 0) |
 | `admission_delay_p50_s`, `admission_delay_p99_s` | 입장 시각 − 진입 시각 (오픈 전 진입은 오픈 시각 기준) | 없음 | app | 보고만 |
 | `admission_rate_actual` | 실제 초당 입장 인원 평균 | 입장 수 / (첫 입장 초 ~ 마지막 입장 초, 양 끝 포함) | app (queue-integrity) | 설정값 ±5% (대기열이 밀려 있을 때만 의미 있음. 도착이 입장 속도보다 느리면 도착률이 나온다) |
+| `admission_tick_p99_ms` | 입장 스케줄러 한 틱의 처리 시간 p99. 회차 순회, `ZRANGE`·`HMGET` 읽기, 판정, Lua 일괄 제거, DB 일괄 쓰기를 포함 (`openrun.queue.tick{phase=total}`) | 없음 | app (`GET /api/admin/diagnostics/queue-ticks`) | 500 이하. 1,000을 넘으면 다음 틱이 밀려 `admission_rate_actual`이 설정값 아래로 떨어진다 |
 | `rank_api_p99_ms` | `GET /queue/me` 응답 시간 p99 | 없음 | k6 | 100 이하 |
 | `rank_drift_count` | 새로고침 폭풍 시나리오에서 같은 회원의 순번이 직전 응답보다 커진 횟수 (줄어드는 것은 정상) | 없음 | k6 커스텀 | 0 |
 | `unauthorized_seat_calls` | 입장 토큰 없이 또는 만료 토큰으로 좌석 API를 호출해 401을 받은 수. `openrun.api.errors{code=ACCESS_TOKEN_*}` 합 | 없음 | app | 보고만 (매크로 행동 지표) |

@@ -29,10 +29,13 @@ M2는 오픈 시각에 몰리는 요청을 순서대로 좌석 API에 들여보�
 
 1. `open_at <= now()`가 아니면 건너뛴다. 오픈 전에는 순번만 있고 입장은 없다.
 2. 회차별 Bucket4j 버킷(용량 = 초당 입장 인원, greedy refill)에서 이번 틱의 **입장 예산**을 꺼낸다.
-3. 예산이 남아 있는 동안 `ZRANGE 0 0 WITHSCORES`로 **머리를 보고** 판정한 뒤 Lua 한 번으로 꺼낸다. 스케줄러 하나만 회원을 제거하므로 보고 나서 꺼내도 안전하다. `ZPOPMIN`을 쓰지 않는 이유는 꺼낸 뒤 `admitted:` 키를 쓰기 전까지의 틈에 폴링이 들어오면 "대기 중도 입장도 아님"으로 보여 클라이언트가 재진입해 뒤로 밀리기 때문이다.
-   - `max(entered_at, last_polled_at) < now() - 30s`이면 **이탈**. Lua로 `ZREM` + 폴링 해시 `HDEL`, DB에 `abandoned_at`을 쓰고 `QueueAbandoned`를 남긴다. 예산은 쓰지 않는다. 폴링을 멈춘 사람에게 입장권을 주면 좌석 선택 시간(10분)만큼 입장 슬롯이 낭비되기 때문이다.
-   - 아니면 **입장**. 입장 토큰을 발급해 Lua 한 번으로 `ZREM` + `HDEL` + `SET admitted:{showtimeId}:{memberId} EX ttl`을 하고, `admitted_at` · `admitted_seq`(Postgres 시퀀스 `queue_admission_admitted_seq`, 틱을 넘어 단조 증가해야 `fifo_violation_rate`를 계산할 수 있다) · `token_expires_at`을 쓰고 `QueueAdmitted`를 남긴다. 예산 1을 쓴다.
-4. 한 틱에서 꺼낸 행들은 회차마다 DB 트랜잭션 하나로 쓴다. Redis 제거는 트랜잭션 밖이므로 DB 쓰기가 실패하면 그 틱의 회원은 ZSET에서 빠졌지만 입장 기록이 없는 상태가 될 수 있다. 이 경우 폴링이 `NOT_IN_QUEUE`를 돌려주고 클라이언트가 재진입한다(뒤로 밀림). 횟수는 `queue_admission`에서 `admitted_at`도 `abandoned_at`도 없는데 ZSET에도 없는 행(`lost`)으로 센다. 반대로 진입 INSERT가 실패해 ZSET에는 있는데 행이 없는 회원은 스케줄러가 판정 시점에 ZSET 점수로 행을 만들어 준다. 보상 재시도는 1.5차 janitor 확장 범위다.
+3. **머리 N명을 한 번에 보고 판정한다** (2026-11-16 개정. 이전에는 한 명씩 `ZRANGE 0 0` → `HGET` → Lua의 Redis 왕복 3회와 회원별 SQL 3문장을 직렬로 했고, 러너에서 k6와 CPU를 나누자 입장 속도가 설정 100/s 대비 19~64/s로 떨어졌다. [기록](../reports/runs/2026-11-12-bench-m2.md)). `ZRANGE 0 L-1 WITHSCORES` 한 번(L = 입장 속도 × 5 + 1. 이탈자로 가득한 줄이 틱을 붙잡지 않도록 하는 상한)과 폴링 해시 `HMGET` 한 번으로 후보를 읽고, 메모리에서 앞에서부터 예산이 남아 있는 동안 판정한다.
+   - `max(entered_at, last_polled_at) < now() - 30s`이면 **이탈**. 예산은 쓰지 않는다. 폴링을 멈춘 사람에게 입장권을 주면 좌석 선택 시간(10분)만큼 입장 슬롯이 낭비되기 때문이다.
+   - 아니면 **입장**. 입장 토큰을 발급하고 예산 1을 쓴다.
+   판정이 끝나면 Lua **한 번**으로 회원 순서대로 이탈자는 `ZREM` + 폴링 해시 `HDEL`, 입장자는 `ZREM` + `HDEL` + `SET admitted:{showtimeId}:{memberId} EX ttl`을 하고 회원별 `ZREM` 결과를 돌려준다. 스케줄러 하나만 회원을 제거하므로 보고 나서 꺼내도 안전하고, 제거와 입장 기록이 한 스크립트 안이라 폴링이 "대기 중도 입장도 아님"을 보는 틈이 없다(`ZPOPMIN`을 쓰지 않는 이유). `ZREM`이 0인 회원(그 사이 줄에서 빠진 경우)은 DB에 쓰지 않는다.
+4. 한 틱에서 꺼낸 회원들은 회차마다 DB 트랜잭션 하나로 **일괄** 쓴다. 열린 행 조회 한 번(`member_id = any(?)`, 회원당 최신 행), `admitted_seq`는 `nextval('queue_admission_admitted_seq')` N개를 한 문장으로 받아 오름차순으로 입장 순서에 배정(시퀀스는 틱을 넘어 단조 증가해야 `fifo_violation_rate`를 계산할 수 있다), 이탈 행에는 `abandoned_at`, 입장 행에는 `admitted_at` · `admitted_seq` · `token_expires_at`을 JDBC 배치 UPDATE로 쓰고 `QueueAdmitted` · `QueueAbandoned`도 배치 INSERT로 남긴다. Redis 제거는 트랜잭션 밖이므로 DB 쓰기가 실패하면 그 틱의 회원은 ZSET에서 빠졌지만 입장 기록이 없는 상태가 될 수 있다. 이 경우 폴링이 `NOT_IN_QUEUE`를 돌려주고 클라이언트가 재진입한다(뒤로 밀림). 횟수는 `queue_admission`에서 `admitted_at`도 `abandoned_at`도 없는데 ZSET에도 없는 행(`lost`)으로 센다. 반대로 진입 INSERT가 실패해 ZSET에는 있는데 행이 없는 회원은 스케줄러가 판정 시점에 ZSET 점수로 행을 만들어 준다. 보상 재시도는 1.5차 janitor 확장 범위다.
+
+5. 틱 처리 시간은 `openrun.queue.tick{phase}` 타이머(`redis_read` · `redis_write` · `db_write`는 회차별, `total`은 틱 전체)로 재고 `GET /api/admin/diagnostics/queue-ticks`로 읽는다(`reset=true`로 초기화). 리포트 지표는 `admission_tick_p99_ms`(docs/metrics.md). 틱이 1초를 넘으면 다음 틱이 밀려 입장 속도가 설정값 아래로 떨어지므로 이 값이 첫 경고다.
 
 머리부터 꺼내므로 FIFO 위반은 구조적으로 0이어야 한다. 지표는 "0이어야 하는 값이 0임"을 매주 증명하는 용도다. 입장 속도 `admission_rate_actual`은 입장 수 ÷ (첫 입장부터 마지막 입장까지의 초, 양 끝 포함)이다. 1초 틱이라 양 끝을 빼면 한 틱만큼 과대평가된다.
 
@@ -83,18 +86,18 @@ M2는 오픈 시각에 몰리는 요청을 순서대로 좌석 API에 들여보�
 | 입장 토큰을 불투명 문자열 + Redis 조회 | M2-2가 Redis 없는 검증을 요구. 1.5차 Go 입장 게이트 비교 실험도 무상태 검증이 전제 |
 | JWT를 직접 구현(HMAC 40줄) | 라이브러리 없이 가능하지만 면접에서 "왜 표준 구현을 안 썼나"가 더 설명하기 어려움. nimbus-jose-jwt는 Spring Security가 쓰는 구현이라 의존 하나로 끝남 |
 | Spring Security 도입 | 필터 체인·세션·CSRF 설정이 1차 범위를 넘음. 1.5차 봇 방어에서 재검토 |
-| `ZPOPMIN`으로 꺼낸 뒤 판정 | 꺼낸 순간부터 `admitted:` 키를 쓸 때까지 폴링이 `NOT_IN_QUEUE`를 봄. 머리를 보고 Lua로 제거+입장 기록을 한 번에 한다. 1명씩 처리하는 비용은 초당 100회로 무시 가능 |
+| `ZPOPMIN`으로 꺼낸 뒤 판정 | 꺼낸 순간부터 `admitted:` 키를 쓸 때까지 폴링이 `NOT_IN_QUEUE`를 봄. 머리를 보고 Lua로 제거+입장 기록을 한 번에 한다. (처음엔 "1명씩 처리하는 비용은 초당 100회로 무시 가능"이라 적었으나 러너에서 틀렸다. 2026-11-16 §2-3 일괄 처리로 바꿨고 `ZPOPMIN`을 쓰지 않는 이유는 그대로다) |
 
 ## 결과
 
 - 좋아지는 것: 폴링 경로가 Redis 전용이라 새로고침 폭풍이 DB에 닿지 않는다. 입장 순서가 점수 순이라 FIFO 위반 0을 매주 증명한다. 좌석 API 인증이 무상태라 M1 벤치 결과와 비교 가능하다.
 - 감수하는 것: 틱 중간 DB 실패 시 회원이 줄에서 빠지는 경우가 있다(§2-4, 재진입으로 복구). 버킷이 인스턴스 메모리에 있어 스케줄러 다중화는 1.5차 ShedLock 확장과 같이 간다. 토큰 폐기가 없으므로 유효 시간이 곧 권한 기간이다.
-- 다시 검토할 조건: 러너 실행([기록](../reports/runs/2026-11-12-bench-m2.md))에서 새로고침 폭풍 중 입장 속도가 설정 100/s 대비 19~64/s로 떨어졌다. 스케줄러가 회원 한 명씩 Redis 왕복 3회와 DB 쓰기를 직렬로 하므로 CPU가 부족하면 입장이 먼저 느려진다. `admission_rate_actual ±5%`를 못 지키면 틱당 N명 일괄 처리(`ZRANGE` N명 → Lua 일괄 제거 → DB 일괄 UPDATE)로 바꾼다. 회차가 동시에 여러 개 열리거나 입장 속도를 회차별로 달리해야 하면 설정을 회차 테이블로 옮긴다. 사람 참여(1.5차)에서 토큰 탈취가 문제가 되면 지문·Turnstile과 함께 토큰에 클라이언트 바인딩을 넣는다.
+- 다시 검토할 조건: 러너 실행([기록](../reports/runs/2026-11-12-bench-m2.md))에서 새로고침 폭풍 중 입장 속도가 설정 100/s 대비 19~64/s로 떨어졌다. 스케줄러가 회원 한 명씩 Redis 왕복 3회와 DB 쓰기를 직렬로 하므로 CPU가 부족하면 입장이 먼저 느려진다. `admission_rate_actual ±5%`를 못 지켜 2026-11-16에 틱당 N명 일괄 처리(§2-3 · §2-4)로 바꿨다. 효과는 리포트 #1의 새로고침 폭풍 `admission_rate_actual`과 `admission_tick_p99_ms`로 확인한다. 회차가 동시에 여러 개 열리거나 입장 속도를 회차별로 달리해야 하면 설정을 회차 테이블로 옮긴다. 사람 참여(1.5차)에서 토큰 탈취가 문제가 되면 지문·Turnstile과 함께 토큰에 클라이언트 바인딩을 넣는다.
 
 ## 증명
 
 - `QueueApiTest`: M2-1 진입·순번·폴링, M2-2 토큰 없이 401 및 Redis `FLUSHALL` 뒤에도 토큰 검증 통과, M2-4 만료 토큰 401·재진입 새 순번
-- `AdmissionSchedulerTest`: 오픈 전 입장 0, 틱당 입장 인원 = 설정값, 30초 무폴링 회원은 이탈 처리되고 예산을 쓰지 않음, FIFO 위반 0
+- `AdmissionSchedulerTest`: 오픈 전 입장 0, 틱당 입장 인원 = 설정값, 30초 무폴링 회원은 이탈 처리되고 예산을 쓰지 않음, FIFO 위반 0, 이탈자·입장자가 섞인 머리 N명을 한 틱에 꺼내도 순서·예산·`admitted_seq` 단조 증가 유지, 행 없는 회원은 ZSET 점수로 행을 만들어 기록
 - `QueueStormTest`: 회원 다수가 0.2초 간격으로 동시 폴링해도 `rank_drift_count` 0
 - `TokenCodecTest`: 발급·검증·만료·서명 불일치·회차 불일치
 - `load/k6/queue-storm.js` + `GET /queue-integrity`: 새로고침 폭풍 1,000 VU에서 `rank_drift_count` 0, `rank_api_p99_ms` 100 이하

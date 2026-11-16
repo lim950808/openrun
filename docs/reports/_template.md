@@ -55,6 +55,7 @@
 | `abandon_rate` | | 15% | 복원 검증 |
 | `fifo_violation_rate` | | | ≤ 1% |
 | `admission_delay_p50_s` / `p99_s` | | | 보고 |
+| `admission_tick_p99_ms` | | | ≤ 500 |
 | `rank_drift_count` | | | 0 |
 
 ## 결제 (M3 이후)
