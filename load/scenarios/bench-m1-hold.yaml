@@ -10,7 +10,7 @@
 #   app.janitor_delay_ms             : janitor sweep interval the API runs with during the bench
 #   app.allow_strategy_override      : the API must honor X-Hold-Strategy
 #   app.require_access_token         : false = seat APIs take X-Member-Id without the queue (ADR-0006 §3)
-#   lock_strategy                    : NAIVE | FOR_UPDATE | SKIP_LOCKED | CONDITIONAL_UPDATE | REDIS_LUA (set per run)
+#   lock_strategy                    : NAIVE | FOR_UPDATE | SKIP_LOCKED | CONDITIONAL_UPDATE | REDIS_LUA | REDIS_LUA_OUTSIDE_TX (set per run)
 #   runs                             : consecutive runs per strategy; report the median with min and max
 #   abandon_probability              : per-member probability of leaving the queue (unused while queue is disabled)
 #   seat_select_seconds              : distribution of seat selection time

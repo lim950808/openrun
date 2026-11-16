@@ -6,8 +6,8 @@ import io.micrometer.core.instrument.Timer
 import org.springframework.dao.DuplicateKeyException
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
-import org.springframework.transaction.annotation.Transactional
-import org.springframework.transaction.interceptor.TransactionAspectSupport
+import org.springframework.transaction.TransactionStatus
+import org.springframework.transaction.support.TransactionTemplate
 import java.time.Duration
 import java.time.Instant
 import java.time.OffsetDateTime
@@ -47,6 +47,7 @@ sealed interface HoldOutcome {
 @Service
 class HoldService(
     private val jdbc: JdbcTemplate,
+    private val tx: TransactionTemplate,
     private val outbox: OutboxJdbcRepository,
     private val props: HoldProperties,
     strategies: List<SeatClaimStrategy>,
@@ -58,56 +59,120 @@ class HoldService(
         if (requested != null && props.allowStrategyOverride) requested else props.strategy
 
     /**
-     * Records `openrun.hold.phase{strategy,phase}` for `reserve_insert`, `claim`, `seats_insert` and `total`
-     * (`redis_script` comes from [RedisSeatHolds]). Instrumentation only: the transaction and the SQL are unchanged.
-     * `total` stops before the commit, which runs in the @Transactional proxy after this method returns.
+     * Records `openrun.hold.phase{strategy,phase}` for `id_alloc` (pre-allocating strategies only), `reserve_insert`,
+     * `claim`, `seats_insert` and `total` (`redis_script` comes from [RedisSeatHolds]). Instrumentation only: the transaction and the SQL are unchanged.
+     * `total` stops before the commit, which runs in [TransactionTemplate.execute] after the body returns. It starts
+     * inside the transaction, except for a strategy with a pre-transaction step (ADR-0005 §7), where it starts here
+     * and also covers `id_alloc` and the step itself.
      */
-    @Transactional
     fun hold(cmd: HoldCommand): HoldOutcome {
         val strategy = strategyFor(cmd.strategy)
+        val claimer = strategies.getValue(strategy)
+        val seatIds = cmd.seatIds.sorted()
+        if (seatIds.size !in 1..MAX_SEATS || seatIds.distinct().size != seatIds.size) {
+            recordPhase(registry, strategy, PHASE_TOTAL, System.nanoTime())
+            return HoldOutcome.Failure(HoldError.InvalidSeatCount)
+        }
+        if (!claimer.allocatesIdUpfront) {
+            return tx.execute { status -> holdInTransaction(status, cmd, seatIds, claimer, null, System.nanoTime()) }
+        }
+
         val started = System.nanoTime()
-        try {
-            return holdTimed(cmd, strategy)
-        } finally {
+        val reservationId = allocateReservationId(strategy)
+        if (claimer.beforeTransaction(cmd.showtimeId, seatIds, reservationId, props.ttl) != null) {
             recordPhase(registry, strategy, PHASE_TOTAL, started)
+            return HoldOutcome.Failure(HoldError.SeatTaken)
+        }
+        var outcome: HoldOutcome? = null
+        try {
+            return tx.execute { status -> holdInTransaction(status, cmd, seatIds, claimer, reservationId, started) }
+                .also { outcome = it }
+        } finally {
+            // Rolled back (rollback-only failure or exception, commit included): undo the pre-transaction step.
+            if (outcome !is HoldOutcome.Success) claimer.afterRollback(cmd.showtimeId, seatIds, reservationId)
         }
     }
 
-    private fun holdTimed(cmd: HoldCommand, strategy: LockStrategy): HoldOutcome {
-        val seatIds = cmd.seatIds.sorted()
-        if (seatIds.size !in 1..MAX_SEATS || seatIds.distinct().size != seatIds.size) {
-            return HoldOutcome.Failure(HoldError.InvalidSeatCount)
+    /** Autocommit `nextval` outside any transaction: the connection goes straight back to the pool. */
+    private fun allocateReservationId(strategy: LockStrategy): Long {
+        val started = System.nanoTime()
+        try {
+            return jdbc.queryForObject("select nextval(pg_get_serial_sequence('reservation', 'id'))", Long::class.java)!!
+        } finally {
+            recordPhase(registry, strategy, PHASE_ID_ALLOC, started)
         }
+    }
 
+    private fun holdInTransaction(
+        status: TransactionStatus,
+        cmd: HoldCommand,
+        seatIds: List<Long>,
+        claimer: SeatClaimStrategy,
+        preallocatedId: Long?,
+        started: Long,
+    ): HoldOutcome {
+        try {
+            return holdTimed(status, cmd, seatIds, claimer, preallocatedId)
+        } finally {
+            recordPhase(registry, claimer.name, PHASE_TOTAL, started)
+        }
+    }
+
+    private fun holdTimed(
+        status: TransactionStatus,
+        cmd: HoldCommand,
+        seatIds: List<Long>,
+        claimer: SeatClaimStrategy,
+        preallocatedId: Long?,
+    ): HoldOutcome {
+        val strategy = claimer.name
         // expires_at comes from the database clock, the same clock every free-check and the janitor use.
         val insertStarted = System.nanoTime()
         val (reservationId, expiresAt) = try {
-            jdbc.queryForObject(
-                """
-                insert into reservation (showtime_id, member_id, status, expires_at, strategy)
-                values (?, ?, ?, now() + ? * interval '1 millisecond', ?)
-                returning id, expires_at
-                """.trimIndent(),
-                { rs, _ -> rs.getLong("id") to rs.getObject("expires_at", OffsetDateTime::class.java).toInstant() },
-                cmd.showtimeId,
-                cmd.memberId,
-                ReservationStatus.HOLDING.name,
-                props.ttl.toMillis(),
-                strategy.name,
-            )!!
+            if (preallocatedId == null) {
+                jdbc.queryForObject(
+                    """
+                    insert into reservation (showtime_id, member_id, status, expires_at, strategy)
+                    values (?, ?, ?, now() + ? * interval '1 millisecond', ?)
+                    returning id, expires_at
+                    """.trimIndent(),
+                    { rs, _ -> rs.getLong("id") to rs.getObject("expires_at", OffsetDateTime::class.java).toInstant() },
+                    cmd.showtimeId,
+                    cmd.memberId,
+                    ReservationStatus.HOLDING.name,
+                    props.ttl.toMillis(),
+                    strategy.name,
+                )!!
+            } else {
+                jdbc.queryForObject(
+                    """
+                    insert into reservation (id, showtime_id, member_id, status, expires_at, strategy)
+                    overriding system value
+                    values (?, ?, ?, ?, now() + ? * interval '1 millisecond', ?)
+                    returning id, expires_at
+                    """.trimIndent(),
+                    { rs, _ -> rs.getLong("id") to rs.getObject("expires_at", OffsetDateTime::class.java).toInstant() },
+                    preallocatedId,
+                    cmd.showtimeId,
+                    cmd.memberId,
+                    ReservationStatus.HOLDING.name,
+                    props.ttl.toMillis(),
+                    strategy.name,
+                )!!
+            }
         } catch (e: DuplicateKeyException) {
-            return rollback(HoldError.ActiveReservationExists)
+            return rollback(status, HoldError.ActiveReservationExists)
         } finally {
             recordPhase(registry, strategy, PHASE_RESERVE_INSERT, insertStarted)
         }
 
         val claimStarted = System.nanoTime()
         val claim = try {
-            strategies.getValue(strategy).claim(cmd.showtimeId, seatIds, reservationId, cmd.memberId, expiresAt)
+            claimer.claim(cmd.showtimeId, seatIds, reservationId, cmd.memberId, expiresAt)
         } finally {
             recordPhase(registry, strategy, PHASE_CLAIM, claimStarted)
         }
-        if (claim !is ClaimResult.Claimed) return rollback(HoldError.SeatTaken)
+        if (claim !is ClaimResult.Claimed) return rollback(status, HoldError.SeatTaken)
 
         val seatsStarted = System.nanoTime()
         val seats = seatIds.map { SeatPrice(it, claim.prices.getValue(it)) }
@@ -127,8 +192,8 @@ class HoldService(
     }
 
     /** Undo the reservation insert and any partial claim without using an exception for flow control. */
-    private fun rollback(error: HoldError): HoldOutcome {
-        TransactionAspectSupport.currentTransactionStatus().setRollbackOnly()
+    private fun rollback(status: TransactionStatus, error: HoldError): HoldOutcome {
+        status.setRollbackOnly()
         return HoldOutcome.Failure(error)
     }
 
@@ -136,6 +201,7 @@ class HoldService(
         const val MAX_SEATS = 2
 
         const val PHASE_METRIC = "openrun.hold.phase"
+        const val PHASE_ID_ALLOC = "id_alloc"
         const val PHASE_RESERVE_INSERT = "reserve_insert"
         const val PHASE_CLAIM = "claim"
         const val PHASE_REDIS_SCRIPT = "redis_script"

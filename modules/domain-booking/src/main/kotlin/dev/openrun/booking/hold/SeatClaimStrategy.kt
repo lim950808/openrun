@@ -1,5 +1,6 @@
 package dev.openrun.booking.hold
 
+import java.time.Duration
 import java.time.Instant
 
 /**
@@ -11,6 +12,18 @@ interface SeatClaimStrategy {
     val name: LockStrategy
 
     fun claim(showtimeId: Long, seatIds: List<Long>, reservationId: Long, memberId: Long, expiresAt: Instant): ClaimResult
+
+    /** true when the strategy needs the reservation id before the transaction (allocated with `nextval`). */
+    val allocatesIdUpfront: Boolean get() = false
+
+    /**
+     * Work before the database transaction opens, called only when [allocatesIdUpfront]. Returns null to continue,
+     * or [ClaimResult.Taken] to stop before any database write.
+     */
+    fun beforeTransaction(showtimeId: Long, seatIds: List<Long>, reservationId: Long, ttl: Duration): ClaimResult? = null
+
+    /** Undo of [beforeTransaction] when the transaction did not commit. Runs outside the transaction. */
+    fun afterRollback(showtimeId: Long, seatIds: List<Long>, reservationId: Long) {}
 }
 
 sealed interface ClaimResult {

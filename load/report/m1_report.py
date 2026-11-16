@@ -15,7 +15,7 @@ import os
 import statistics
 import sys
 
-STRATEGIES = ["NAIVE", "FOR_UPDATE", "SKIP_LOCKED", "CONDITIONAL_UPDATE", "REDIS_LUA"]
+STRATEGIES = ["NAIVE", "FOR_UPDATE", "SKIP_LOCKED", "CONDITIONAL_UPDATE", "REDIS_LUA", "REDIS_LUA_OUTSIDE_TX"]
 
 
 def values(runs, key):
@@ -71,6 +71,8 @@ def phase_p99(snapshots, phase):
 
 
 PHASES = ["reserve_insert", "claim", "redis_script", "seats_insert", "total"]
+# Only REDIS_LUA_OUTSIDE_TX records id_alloc (ADR-0005 §7); the column appears only when a snapshot has it.
+OPTIONAL_PHASES = ["id_alloc"]
 
 
 def load_runs(pattern, exclude_prefix=None):
@@ -136,18 +138,20 @@ def main():
             f"{summed(runs, 'dropped_iterations')} | {median_only(runs, 'planned_attempt_rps')} |"
         )
     if phases:
+        snapshots = [snap for snaps in phases.values() for snap in snaps]
+        columns = [p for p in OPTIONAL_PHASES if any(p in snap.get("phases", {}) for snap in snapshots)] + PHASES
         lines.append("")
         lines.append("hold 단계별 p99 (ms, 3회 중앙값)")
         lines.append("")
         lines.append(
-            "| `strategy` | " + " | ".join(PHASES) + " | `hikari_acquire_p99_ms` | `hikari_pending_max` |"
+            "| `strategy` | " + " | ".join(columns) + " | `hikari_acquire_p99_ms` | `hikari_pending_max` |"
         )
-        lines.append("|---" * (len(PHASES) + 3) + "|")
+        lines.append("|---" * (len(columns) + 3) + "|")
         phase_ordered = [s for s in STRATEGIES if s in phases] + sorted(set(phases) - set(STRATEGIES))
         for strategy in phase_ordered:
             snaps = phases[strategy]
             lines.append(
-                f"| {strategy} | " + " | ".join(phase_p99(snaps, p) for p in PHASES) + " | "
+                f"| {strategy} | " + " | ".join(phase_p99(snaps, p) for p in columns) + " | "
                 f"{median_only(snaps, 'hikari_acquire_p99_ms')} | {median_only(snaps, 'hikari_pending_max', 0)} |"
             )
     text = "\n".join(lines) + "\n"

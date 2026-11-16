@@ -62,6 +62,7 @@ class HoldExpiryJanitor(
         val rows = tx.execute {
             // One reservation row per seat it held; `freed` is false when the seat was already re-claimed lazily
             // by someone else, in which case seat_hold and the Redis key belong to the new holder and stay untouched.
+            // RETURNING sees the updated row (reservation_id already null), so the old owner comes from `expired`.
             val rows = jdbc.query(
                 """
                 with expired as (
@@ -72,7 +73,7 @@ class HoldExpiryJanitor(
                     update seat_hold sh set reservation_id = null, member_id = null, expires_at = null
                     from expired e
                     where sh.showtime_id = e.showtime_id and sh.reservation_id = e.id
-                    returning sh.reservation_id as old_reservation_id, sh.seat_id
+                    returning e.id as old_reservation_id, sh.seat_id
                 )
                 select e.id, e.showtime_id, e.expires_at, rs.seat_id,
                        exists (select 1 from freed f where f.old_reservation_id = e.id and f.seat_id = rs.seat_id) as freed

@@ -6,7 +6,7 @@ import org.springframework.data.redis.core.script.DefaultRedisScript
 import org.springframework.stereotype.Component
 
 /**
- * Redis side of the `REDIS_LUA` strategy. Key `hold:{showtimeId}:{seatId}` (the braces are a cluster hash tag so
+ * Redis side of the `REDIS_LUA` and `REDIS_LUA_OUTSIDE_TX` strategies. Key `hold:{showtimeId}:{seatId}` (the braces are a cluster hash tag so
  * one showtime's keys share a slot); value is the reservation id so cleanup only deletes keys it still owns.
  */
 @Component
@@ -54,13 +54,19 @@ class RedisSeatHolds(
 
     fun keys(showtimeId: Long, seatIds: List<Long>): List<String> = seatIds.map { "hold:{$showtimeId}:$it" }
 
-    /** All-or-nothing SET for every key; false when any key already exists. Timed as phase `redis_script`. */
-    fun claim(showtimeId: Long, seatIds: List<Long>, reservationId: Long, ttlMillis: Long): Boolean {
+    /** All-or-nothing SET for every key; false when any key already exists. Timed as phase `redis_script` of [strategy]. */
+    fun claim(
+        showtimeId: Long,
+        seatIds: List<Long>,
+        reservationId: Long,
+        ttlMillis: Long,
+        strategy: LockStrategy = LockStrategy.REDIS_LUA,
+    ): Boolean {
         val started = System.nanoTime()
         try {
             return redis.execute(claimScript, keys(showtimeId, seatIds), reservationId.toString(), ttlMillis.toString()) == 1L
         } finally {
-            HoldService.recordPhase(registry, LockStrategy.REDIS_LUA, HoldService.PHASE_REDIS_SCRIPT, started)
+            HoldService.recordPhase(registry, strategy, HoldService.PHASE_REDIS_SCRIPT, started)
         }
     }
 

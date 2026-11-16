@@ -1,7 +1,7 @@
 // M1 single-seat burst: VUS members hammer ONE seat; every winner releases at once so the next collision can
 // happen. Counts how often two reservations held the seat at the same time (`oversell_occurred_count`).
 //
-//   STRATEGY    required: NAIVE | FOR_UPDATE | SKIP_LOCKED | CONDITIONAL_UPDATE | REDIS_LUA
+//   STRATEGY    required: NAIVE | FOR_UPDATE | SKIP_LOCKED | CONDITIONAL_UPDATE | REDIS_LUA | REDIS_LUA_OUTSIDE_TX
 //               (the API must run with OPENRUN_HOLD_ALLOW_OVERRIDE=true)
 //   BASE_URL    default http://localhost:8080
 //   VUS         default 100

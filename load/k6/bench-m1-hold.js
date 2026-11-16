@@ -1,7 +1,7 @@
 // M1 seat-hold benchmark (docs/requirements.md M1-3, metrics in docs/metrics.md "M1 좌석 선점").
 // One run = one fresh showtime, one lock strategy, ramping-arrival-rate stages from the scenario yaml.
 //
-//   STRATEGY    required: NAIVE | FOR_UPDATE | SKIP_LOCKED | CONDITIONAL_UPDATE | REDIS_LUA
+//   STRATEGY    required: NAIVE | FOR_UPDATE | SKIP_LOCKED | CONDITIONAL_UPDATE | REDIS_LUA | REDIS_LUA_OUTSIDE_TX
 //               (the API must run with OPENRUN_HOLD_ALLOW_OVERRIDE=true)
 //   BASE_URL    default http://localhost:8080
 //   SCENARIO    repo-relative yaml path, default load/scenarios/bench-m1-hold.yaml

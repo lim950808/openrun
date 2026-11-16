@@ -41,7 +41,7 @@ class PaymentConfig {
         return TossPgClient(RestClient.builder().requestFactory(TossPgClient.requestFactory()), props.toss.secretKey, props.toss.baseUrl)
     }
 
-    /** Redis side of payment transitions for the `REDIS_LUA` strategy (keys of other strategies do not exist). */
+    /** Redis side of payment transitions for the `REDIS_LUA` strategies (keys of other strategies do not exist). */
     @Bean
     fun seatHoldHook(redisHolds: RedisSeatHolds): SeatHoldHook = object : SeatHoldHook {
         override fun pin(showtimeId: Long, seatIds: List<Long>, reservationId: Long) {
