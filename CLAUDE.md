@@ -70,4 +70,4 @@ OPEN_DELAY_S=90 DURATION_S=60 MEMBERS=60 SETTLE_S=30 load/weekly-openrun.sh   # 
 
 ## 현재 단계
 
-M4 화면·자동화 구현 완료(ADR-0008), 1차 남은 것은 공개 배포(호스팅은 사용자 결정). 주간 리포트는 토요일마다 자동 커밋되며 서술 두 절(배운 것·미해결)은 사람이 채운다. 리포트 #1(2026-11-28 토) 전 실험 두 건을 코드로 넣었다: 실험 전략 `REDIS_LUA_OUTSIDE_TX`(ADR-0005 §7, bench-m1 `strategies` 입력으로 REDIS_LUA와 비교)와 입장 스케줄러 틱당 일괄 처리(ADR-0006 §2, `admission_tick_p99_ms`). 러너 결과를 보고 ADR-0005 기본 전략을 확정한다.
+M4 화면·자동화 구현 완료(ADR-0008), 1차 남은 것은 공개 배포(호스팅은 사용자 결정). 주간 리포트는 토요일마다 자동 커밋되며 서술 두 절(배운 것·미해결)은 사람이 채운다. 리포트 #1(2026-11-28 토) 전 실험 두 건을 코드로 넣었다: 실험 전략 `REDIS_LUA_OUTSIDE_TX`(ADR-0005 §7, bench-m1 `strategies` 입력으로 REDIS_LUA와 비교)와 입장 스케줄러 틱당 일괄 처리(ADR-0006 §2, `admission_tick_p99_ms`). 2026-11-17에 측정을 고쳤다: `admission_rate_actual`은 틱 기준 수식(첫·마지막 틱 제외), 순번 API는 k6 체감(`rank_api_p99_ms`)과 서버 처리(`rank_api_server_p99_ms`, `GET /api/admin/diagnostics/http-requests`)를 나눠 본다. 러너 결과를 보고 ADR-0005 기본 전략을 확정한다.
