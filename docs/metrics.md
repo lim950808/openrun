@@ -34,9 +34,10 @@
 | `abandon_rate` | 진입했지만 입장 전에 폴링을 멈춘 비율. "멈춤"은 마지막 폴링(또는 진입) 후 30초 이상 무요청이고 입장되지 않은 경우. app은 `queue_admission`의 `abandoned_at`(스케줄러 판정) + 점검 시점에 ZSET에 남아 있고 30초 넘게 폴링이 없는 회원, mart는 `QueueEntered`·`QueueAdmitted`·`QueueAbandoned` 이벤트로 계산 | 이탈 회원 수 / 진입 회원 수 | app, mart | 시나리오의 회원당 이탈 확률(15%)과 비교 (복원 검증) |
 | `fifo_violation_rate` | 입장된 회원 중, 자신보다 늦게 진입한 회원이 먼저 입장한 경우의 비율. 진입 순서는 `entered_at`(ZSET 점수), 입장 순서는 `admitted_seq` | 위반 회원 수 / 입장 회원 수 | app (`GET /api/admin/showtimes/{id}/queue-integrity`) | 1% 이하 (구조상 0) |
 | `admission_delay_p50_s`, `admission_delay_p99_s` | 입장 시각 − 진입 시각 (오픈 전 진입은 오픈 시각 기준) | 없음 | app | 보고만 |
-| `admission_rate_actual` | 실제 초당 입장 인원 평균 | 입장 수 / (첫 입장 초 ~ 마지막 입장 초, 양 끝 포함) | app (queue-integrity) | 설정값 ±5% (대기열이 밀려 있을 때만 의미 있음. 도착이 입장 속도보다 느리면 도착률이 나온다) |
+| `admission_rate_actual` | 실제 초당 입장 인원 평균. 틱 단위로 센다: 같은 `admitted_at`을 가진 입장 행이 한 틱이고(스케줄러가 한 틱의 모든 행에 같은 시각을 쓴다), 첫 틱은 구간의 시작점으로만 쓰고 마지막 틱은 대기열이 비어 부분만 채웠을 수 있어 뺀다. 틱이 3개 미만이면 null. 틱 수는 `admission_ticks` | (첫 틱과 마지막 틱을 뺀 입장 수) / (마지막 직전 틱 시각 − 첫 틱 시각, 초) | app (queue-integrity) | 설정값 ±5% (대기열이 밀려 있을 때만 의미 있음. 도착이 입장 속도보다 느리면 도착률이 나온다). 이전 수식 "입장 수 ÷ floor 초 구간(양 끝 포함)"은 틱 10개에서 ±10% 오차가 있어 2026-11-17에 바꿨다 |
 | `admission_tick_p99_ms` | 입장 스케줄러 한 틱의 처리 시간 p99. 회차 순회, `ZRANGE`·`HMGET` 읽기, 판정, Lua 일괄 제거, DB 일괄 쓰기를 포함 (`openrun.queue.tick{phase=total}`) | 없음 | app (`GET /api/admin/diagnostics/queue-ticks`) | 500 이하. 1,000을 넘으면 다음 틱이 밀려 `admission_rate_actual`이 설정값 아래로 떨어진다 |
-| `rank_api_p99_ms` | `GET /queue/me` 응답 시간 p99 | 없음 | k6 | 100 이하 |
+| `rank_api_p99_ms` | `GET /queue/me` 응답 시간 p99 (클라이언트 체감) | 없음 | k6 | 100 이하 |
+| `rank_api_server_p99_ms` | 같은 요청의 서버 처리 시간 p99. Spring Boot의 `http.server.requests{uri=/api/showtimes/{showtimeId}/queue/me, status=200}` 타이머, 서블릿 필터 진입부터 응답 쓰기까지. `rank_api_p99_ms`와의 차이가 러너 포화(k6·API가 CPU를 나눠 쓰는 몫)와 네트워크다 | 없음 | app (`GET /api/admin/diagnostics/http-requests?uri=`) | 100 이하. k6 값이 100을 넘을 때 서버 몫인지 러너 몫인지 가른다 |
 | `rank_drift_count` | 새로고침 폭풍 시나리오에서 같은 회원의 순번이 직전 응답보다 커진 횟수 (줄어드는 것은 정상) | 없음 | k6 커스텀 | 0 |
 | `unauthorized_seat_calls` | 입장 토큰 없이 또는 만료 토큰으로 좌석 API를 호출해 401을 받은 수. `openrun.api.errors{code=ACCESS_TOKEN_*}` 합 | 없음 | app | 보고만 (매크로 행동 지표) |
 

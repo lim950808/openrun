@@ -46,6 +46,7 @@
 | 대기 토큰 | `visitor token` | 진입 시 발급. 순번 조회에만 사용. JWT, 3시간 |
 | 입장 | `admission`, `admit` | 대기열에서 꺼내 입장 토큰을 주는 것. 1초 틱의 `AdmissionScheduler`(ShedLock)가 머리 N명을 읽어 판정한 뒤 Lua 한 번과 DB 배치 한 번으로 처리한다(ADR-0006 §2) |
 | 틱 처리 시간 | `admission_tick_p99_ms`, `openrun.queue.tick` | 입장 스케줄러가 한 틱을 끝내는 데 걸린 시간. 1초를 넘으면 입장 속도가 설정값 아래로 떨어진다 |
+| 순번 API 서버 시간 | `rank_api_server_p99_ms`, `http.server.requests` | `GET /queue/me`를 서버가 처리한 시간. k6가 잰 `rank_api_p99_ms`에서 러너 포화·네트워크를 뺀 몫 |
 | 입장 기록 키 | `admitted:{showtimeId}:{memberId}` | 발급된 입장 토큰을 토큰 TTL만큼 보관하는 Redis 키. 폴링이 입장 여부를 여기서 본다 |
 | 입장 속도 | `admission_rate` | 초당 입장 인원. Bucket4j로 제어 |
 | 입장 토큰 | `access token` | 좌석 API 호출 권한. JWT, 10분 |

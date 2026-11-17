@@ -36,6 +36,7 @@
 | `hold_p99_ms` | | | ≤ 200 |
 | `hold_throughput_rps` | | | 보고 |
 | `rank_api_p99_ms` | | | ≤ 100 |
+| `rank_api_server_p99_ms` | | | ≤ 100 |
 | `expire_lag_s` (p99) | | | ≤ 60 |
 
 ### 전략 비교 (M1 이후 유지)
@@ -56,6 +57,7 @@
 | `fifo_violation_rate` | | | ≤ 1% |
 | `admission_delay_p50_s` / `p99_s` | | | 보고 |
 | `admission_tick_p99_ms` | | | ≤ 500 |
+| `admission_rate_actual` | | | 설정값 ±5% |
 | `rank_drift_count` | | | 0 |
 
 ## 결제 (M3 이후)
