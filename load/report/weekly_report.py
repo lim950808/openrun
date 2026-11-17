@@ -8,7 +8,7 @@ Inputs (all optional; a missing input prints n/a and, for the benches, a note un
                plus its k6 summary m2-weekly-*.json
   --bench-m1   bench-m1-results artifact: m1-<STRATEGY>-*.json, m1-burst-<STRATEGY>-*.json (load/report/m1_report.py)
   --bench-m2   bench-m2-results artifact: m2-storm-*, m2-weekly-*, m2-integrity-storm-*, m2-integrity-weekly-*,
-               m2-ticks-weekly-*, m3-payment-integrity-weekly-*.json (load/report/m2_report.py)
+               m2-ticks-weekly-*, m2-http-storm-*, m3-payment-integrity-weekly-*.json (load/report/m2_report.py)
 Rules (docs/metrics.md): performance = bench median (min~max), counts = bench sum and the weekly open run apart,
 zero denominators print n/a. Narrative sections stay `> 직접 작성`; no number here is anything but a copied input.
 
@@ -26,7 +26,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from m1_report import STRATEGIES, load_runs, values  # noqa: E402
-from m2_report import fmt, latest, tick_p99  # noqa: E402
+from m2_report import fmt, http_p99, latest, tick_p99  # noqa: E402
 
 NA = "n/a"
 KST = datetime.timezone(datetime.timedelta(hours=9))
@@ -163,6 +163,7 @@ def main():
     b2q = latest(m2_dir, "m2-integrity-weekly-*.json") if m2_dir else {}
     b2p = latest(m2_dir, "m3-payment-integrity-weekly-*.json") if m2_dir else {}
     b2t = latest(m2_dir, "m2-ticks-weekly-*.json") if m2_dir else {}
+    b2h = latest(m2_dir, "m2-http-storm-*.json") if m2_dir else {}
 
     strategy_env = os.environ.get("OPENRUN_HOLD_STRATEGY")
     strategy = strategy_env or DEFAULT_STRATEGY
@@ -234,6 +235,7 @@ def main():
         perf[key] = (med, lo, hi, n)
         out.update({key: med, f"{key}_min": lo, f"{key}_max": hi, f"{key}_runs": n})
     out["rank_api_p99_ms"] = storm.get("rank_api_p99_ms")
+    out["rank_api_server_p99_ms"] = http_p99(b2h)
     out["expire_backlog_max_s"] = wi.get("expire_backlog_max_s")
     prev = previous_report(args.reports, args.date)
 
@@ -397,10 +399,11 @@ def main():
         f"| `hold_p99_ms` | {med_text(*perf['hold_p99_ms'])} | {pv('hold_p99_ms')} | ≤ 200 |",
         f"| `hold_throughput_rps` | {med_text(*perf['hold_throughput_rps'])} | {pv('hold_throughput_rps')} | 보고 |",
         f"| `rank_api_p99_ms` | {fmt(storm.get('rank_api_p99_ms'))} | {pv('rank_api_p99_ms')} | ≤ 100 |",
+        f"| `rank_api_server_p99_ms` | {fmt(http_p99(b2h))} | {pv('rank_api_server_p99_ms')} | ≤ 100 |",
         f"| `expire_lag_s` (p99) | {fmt(wi.get('expire_backlog_max_s'))} ¹ | {pv('expire_backlog_max_s')} | ≤ 60 |",
         "",
-        f"- `hold_p99_ms` · `hold_throughput_rps`는 bench-m1 `{strategy}` 도착률 실행, `rank_api_p99_ms`는 bench-m2 "
-        "새로고침 폭풍 1회.",
+        f"- `hold_p99_ms` · `hold_throughput_rps`는 bench-m1 `{strategy}` 도착률 실행, `rank_api_p99_ms` · "
+        "`rank_api_server_p99_ms`는 bench-m2 새로고침 폭풍 1회(k6 체감 / 서버 `http.server.requests` status 200).",
         "- ¹ 주간 오픈런 integrity의 `expire_backlog_max_s`: 점검 시점 최대값(백로그), p99 미측정.",
         "",
         "### 전략 비교 (M1 이후 유지)",

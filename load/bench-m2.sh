@@ -3,7 +3,9 @@
 # (load/k6/weekly-openrun.js, queue -> hold -> payment through the Fake PG), each on a fresh showtime that opens
 # OPEN_DELAY_S after creation (entry is already open, admission starts then). After each run the showtime's
 # queue-integrity (and, for the weekly run, payment-integrity) is saved, along with the admission scheduler's tick
-# times for that run (GET /api/admin/diagnostics/queue-ticks, reset before each run), then the report prints.
+# times for that run (GET /api/admin/diagnostics/queue-ticks) and the server-side time of GET /queue/me
+# (GET /api/admin/diagnostics/http-requests?uri=/api/showtimes/{showtimeId}/queue/me, rank_api_server_p99_ms);
+# both timers are reset before each run. Then the report prints.
 #
 #   usage: load/bench-m2.sh
 #   env:   BASE_URL (default http://localhost:8080), OPEN_DELAY_S (default 20)
@@ -68,22 +70,33 @@ print(json.load(urllib.request.urlopen(req))["showtimeId"])
 PY
 }
 
+# http_requests [reset]: GET /queue/me server-time snapshot. -G --data-urlencode percent-encodes the braces of the
+# templated uri (curl: -G appends --data-urlencode "name=content" to the URL query with content URL-encoded).
+http_requests() {
+  curl -fsS -G "$BASE_URL/api/admin/diagnostics/http-requests" \
+    --data-urlencode "uri=/api/showtimes/{showtimeId}/queue/me" --data-urlencode "reset=${1:-false}"
+}
+
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 
 STORM_ID="$(new_showtime)"
 echo "=== storm showtime $STORM_ID: $VUS VUs x ${STORM_DURATION_S}s ($K6_BASE_URL)"
 curl -sf "$BASE_URL/api/admin/diagnostics/queue-ticks?reset=true" > /dev/null
+http_requests true > /dev/null
 run_k6 load/k6/queue-storm.js -e "SHOWTIME_ID=$STORM_ID" -e "VUS=$VUS" -e "DURATION_S=$STORM_DURATION_S"
 curl -fsS "$BASE_URL/api/admin/showtimes/$STORM_ID/queue-integrity" > "load/results/m2-integrity-storm-$STAMP.json"
 curl -fsS "$BASE_URL/api/admin/diagnostics/queue-ticks" > "load/results/m2-ticks-storm-$STAMP.json"
+http_requests > "load/results/m2-http-storm-$STAMP.json"
 
 WEEKLY_ID="$(new_showtime)"
 echo "=== weekly showtime $WEEKLY_ID: $MEMBERS members over ${DURATION_S}s ($K6_BASE_URL)"
 curl -sf "$BASE_URL/api/admin/diagnostics/queue-ticks?reset=true" > /dev/null
+http_requests true > /dev/null
 run_k6 load/k6/weekly-openrun.js -e "SHOWTIME_ID=$WEEKLY_ID" -e "DURATION_S=$DURATION_S" -e "MEMBERS=$MEMBERS" \
   -e "ADMISSIONS_PER_SECOND=$ADMISSIONS_PER_SECOND"
 curl -fsS "$BASE_URL/api/admin/showtimes/$WEEKLY_ID/queue-integrity" > "load/results/m2-integrity-weekly-$STAMP.json"
 curl -fsS "$BASE_URL/api/admin/diagnostics/queue-ticks" > "load/results/m2-ticks-weekly-$STAMP.json"
+http_requests > "load/results/m2-http-weekly-$STAMP.json"
 echo "=== waiting ${SETTLE_S}s for the payment janitor"
 sleep "$SETTLE_S"
 curl -fsS "$BASE_URL/api/admin/showtimes/$WEEKLY_ID/payment-integrity" > "load/results/m3-payment-integrity-weekly-$STAMP.json"

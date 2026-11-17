@@ -23,6 +23,12 @@ import java.util.concurrent.atomic.AtomicLong
  *
  * Also the admission scheduler's tick time per phase (`openrun.queue.tick`, ADR-0006 §2-5) for bench-m2.sh and
  * weekly-openrun.sh; `reset=true` works the same way.
+ *
+ * And the server-side time of one endpoint: Boot's `http.server.requests` timers for a templated `uri` (e.g.
+ * `/api/showtimes/{showtimeId}/queue/me`, ADR-0006 §2-5, `rank_api_server_p99_ms`), from the servlet filter to the
+ * response write. `by_status` is keyed by the `status` tag; when several timers share a status (another `method` or
+ * `outcome`), the one with the larger count represents it, `count` sums them all. `reset=true` removes the matching
+ * timers after reading (re-registered by the next request), so bench-m2.sh can scope them to one k6 run.
  */
 @RestController
 class DiagnosticsController(
@@ -63,6 +69,23 @@ class DiagnosticsController(
         return linkedMapOf("phases" to phases)
     }
 
+    @GetMapping("/api/admin/diagnostics/http-requests")
+    fun httpRequests(
+        @RequestParam uri: String,
+        @RequestParam(defaultValue = "false") reset: Boolean,
+    ): Map<String, Any?> {
+        val timers = registry.find(HTTP_REQUESTS_METRIC).tag("uri", uri).timers()
+        val byStatus = timers.groupBy { it.id.getTag("status") ?: "unknown" }.toSortedMap()
+            .mapValues { (_, sameStatus) -> summary(sameStatus.maxBy { it.count() }) }
+        val result = linkedMapOf<String, Any?>(
+            "uri" to uri,
+            "count" to timers.sumOf { it.count() },
+            "by_status" to byStatus,
+        )
+        if (reset) timers.forEach { registry.remove(it) }
+        return result
+    }
+
     private fun summary(timer: Timer): Map<String, Any?> = linkedMapOf(
         "count" to timer.count(),
         "mean_ms" to timer.mean(TimeUnit.MILLISECONDS),
@@ -72,4 +95,9 @@ class DiagnosticsController(
 
     private fun percentileMs(timer: Timer, percentile: Double): Double? =
         timer.takeSnapshot().percentileValues().firstOrNull { it.percentile() == percentile }?.value(TimeUnit.MILLISECONDS)
+
+    companion object {
+        /** Spring Boot's MVC request timer; percentiles and window are set in application.yml. */
+        const val HTTP_REQUESTS_METRIC = "http.server.requests"
+    }
 }

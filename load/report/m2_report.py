@@ -4,7 +4,8 @@
 Reads the newest m2-storm-*.json / m2-weekly-*.json (k6 handleSummary exports),
 m2-integrity-storm-*.json / m2-integrity-weekly-*.json (GET /api/admin/showtimes/{id}/queue-integrity) and
 m3-payment-integrity-weekly-*.json (GET /api/admin/showtimes/{id}/payment-integrity) and
-m2-ticks-storm-*.json / m2-ticks-weekly-*.json (GET /api/admin/diagnostics/queue-ticks).
+m2-ticks-storm-*.json / m2-ticks-weekly-*.json (GET /api/admin/diagnostics/queue-ticks) and
+m2-http-storm-*.json / m2-http-weekly-*.json (GET /api/admin/diagnostics/http-requests?uri=/api/showtimes/{showtimeId}/queue/me).
 Missing data prints n/a.
 
 usage: load/report/m2_report.py [--results load/results] [--label TEXT] [--out path.md]
@@ -27,6 +28,11 @@ def latest(results, pattern):
 def tick_p99(ticks):
     """`phases.total.p99_ms` of a queue-ticks snapshot; None when missing."""
     return ((ticks.get("phases") or {}).get("total") or {}).get("p99_ms")
+
+
+def http_p99(snapshot):
+    """`by_status.200.p99_ms` of an http-requests snapshot (server time of GET /queue/me); None when missing."""
+    return ((snapshot.get("by_status") or {}).get("200") or {}).get("p99_ms")
 
 
 def fmt(v, digits=1, pct=False):
@@ -53,12 +59,15 @@ def main():
     pay = latest(args.results, "m3-payment-integrity-weekly-*.json")
     tstorm = latest(args.results, "m2-ticks-storm-*.json")
     tweekly = latest(args.results, "m2-ticks-weekly-*.json")
+    hstorm = latest(args.results, "m2-http-storm-*.json")
+    hweekly = latest(args.results, "m2-http-weekly-*.json")
     if not (storm or weekly or istorm or iweekly or pay):
         print(f"no m2 results in {args.results}", file=sys.stderr)
         return 1
 
     rows = [
         ("rank_api_p99_ms", fmt(storm.get("rank_api_p99_ms")), fmt(weekly.get("rank_api_p99_ms")), "≤ 100"),
+        ("rank_api_server_p99_ms", fmt(http_p99(hstorm)), fmt(http_p99(hweekly)), "≤ 100"),
         ("rank_drift_count", fmt(storm.get("rank_drift_count")), fmt(weekly.get("rank_drift_count")), "0"),
         ("fifo_violation_rate", fmt(istorm.get("fifo_violation_rate"), 2, True), fmt(iweekly.get("fifo_violation_rate"), 2, True), "≤ 1% (구조상 0)"),
         ("abandon_rate", fmt(istorm.get("abandon_rate"), 1, True), fmt(iweekly.get("abandon_rate"), 1, True), "시나리오 15%와 비교"),

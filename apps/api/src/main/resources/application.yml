@@ -64,9 +64,15 @@ management:
   metrics:
     distribution:
       # Hikari's acquire timer is process-wide (no strategy tag); a 2~3 min window covers one 120 s arrival run.
+      # http.server.requests is Boot's per-request server timer (tags uri/method/status/outcome), read per templated
+      # uri through GET /api/admin/diagnostics/http-requests (rank_api_server_p99_ms). One 10 min buffer so a bench
+      # run after a reset is never split by a rotation; same reasoning as HoldService.recordPhase.
       percentiles:
         "[hikaricp.connections.acquire]": 0.5,0.99
+        "[http.server.requests]": 0.5,0.99
       expiry:
         "[hikaricp.connections.acquire]": PT3M
+        "[http.server.requests]": PT10M
       buffer-length:
         "[hikaricp.connections.acquire]": 3
+        "[http.server.requests]": 1
