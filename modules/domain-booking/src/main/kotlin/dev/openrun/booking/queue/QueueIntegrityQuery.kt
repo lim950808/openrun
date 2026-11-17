@@ -20,8 +20,16 @@ data class QueueIntegrity(
     /** `admission_delay_p50_s`, `admission_delay_p99_s`: admitted_at - greatest(entered_at, open_at). */
     val admissionDelayP50Seconds: Double?,
     val admissionDelayP99Seconds: Double?,
-    /** `admission_rate_actual`: admitted / whole seconds spanned by admitted_at (first..last, inclusive). */
+    /**
+     * `admission_rate_actual`, counted per tick (ADR-0006 §2). Rows sharing one `admitted_at` are one tick: the
+     * scheduler writes the same `now` to every row of a tick's batch. The first tick only anchors the window start
+     * and the last tick is dropped (the queue may have drained mid-budget), so
+     * rate = (rows in ticks 2..n-1) / (admitted_at of tick n-1 - admitted_at of tick 1, seconds). Null when
+     * `admissionTicks` < 3.
+     */
     val admissionRateActual: Double?,
+    /** `admission_ticks`: number of distinct `admitted_at` values among admitted rows. */
+    val admissionTicks: Long,
     /** Waiting rows that are neither admitted, abandoned, nor in the ZSET (ADR-0006 §2-4). */
     val lost: Long,
 )
@@ -65,13 +73,33 @@ class QueueIntegrityQuery(
             """
             select percentile_cont(0.5) within group (order by d) as p50,
                    percentile_cont(0.99) within group (order by d) as p99,
-                   count(*) as n,
-                   floor(extract(epoch from max(admitted_at))) - floor(extract(epoch from min(admitted_at))) + 1 as span_s
+                   count(*) as n
             from (
-                select q.admitted_at, extract(epoch from q.admitted_at - greatest(q.entered_at, s.open_at)) as d
+                select extract(epoch from q.admitted_at - greatest(q.entered_at, s.open_at)) as d
                 from queue_admission q join showtime s on s.id = q.showtime_id
                 where q.showtime_id = ? and q.admitted_at is not null
             ) x
+            """.trimIndent(),
+            showtimeId,
+        )
+
+        // One group per admitted_at = one scheduler tick. The window runs from the first tick to the second-to-last
+        // tick; the rows counted are those of ticks 2..n-1 (the first tick is only the window start).
+        val ticks = jdbc.queryForMap(
+            """
+            with tick as (
+                select admitted_at,
+                       count(*) as n,
+                       row_number() over (order by admitted_at) as tick_no,
+                       count(*) over () as tick_count
+                from queue_admission
+                where showtime_id = ? and admitted_at is not null
+                group by admitted_at
+            )
+            select count(*) as ticks,
+                   sum(n) filter (where tick_no > 1 and tick_no < tick_count) as mid_admitted,
+                   extract(epoch from max(admitted_at) filter (where tick_no = tick_count - 1) - min(admitted_at)) as window_s
+            from tick
             """.trimIndent(),
             showtimeId,
         )
@@ -95,7 +123,9 @@ class QueueIntegrityQuery(
         val entered = (counts["entered"] as Number).toLong()
         val admitted = (counts["admitted"] as Number).toLong()
         val abandoned = (counts["abandoned"] as Number).toLong() + staleWaiting
-        val spanSeconds = (delay["span_s"] as Number?)?.toDouble()
+        val tickCount = (ticks["ticks"] as Number).toLong()
+        val midAdmitted = (ticks["mid_admitted"] as Number?)?.toLong()
+        val windowSeconds = (ticks["window_s"] as Number?)?.toDouble()
         return QueueIntegrity(
             entered = entered,
             admitted = admitted,
@@ -105,7 +135,9 @@ class QueueIntegrityQuery(
             fifoViolationRate = if (admitted > 0) fifo.toDouble() / admitted else null,
             admissionDelayP50Seconds = (delay["p50"] as Number?)?.toDouble(),
             admissionDelayP99Seconds = (delay["p99"] as Number?)?.toDouble(),
-            admissionRateActual = if (admitted > 0 && spanSeconds != null) admitted / spanSeconds else null,
+            admissionRateActual =
+                if (tickCount >= 3 && midAdmitted != null && windowSeconds != null && windowSeconds > 0) midAdmitted / windowSeconds else null,
+            admissionTicks = tickCount,
             lost = lost.toLong(),
         )
     }

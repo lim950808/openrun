@@ -96,6 +96,7 @@ class AdminController(
             "admission_delay_p50_s" to q.admissionDelayP50Seconds,
             "admission_delay_p99_s" to q.admissionDelayP99Seconds,
             "admission_rate_actual" to q.admissionRateActual,
+            "admission_ticks" to q.admissionTicks,
             "unauthorized_seat_calls" to unauthorized,
         )
     }

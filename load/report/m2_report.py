@@ -62,7 +62,7 @@ def main():
         ("rank_drift_count", fmt(storm.get("rank_drift_count")), fmt(weekly.get("rank_drift_count")), "0"),
         ("fifo_violation_rate", fmt(istorm.get("fifo_violation_rate"), 2, True), fmt(iweekly.get("fifo_violation_rate"), 2, True), "≤ 1% (구조상 0)"),
         ("abandon_rate", fmt(istorm.get("abandon_rate"), 1, True), fmt(iweekly.get("abandon_rate"), 1, True), "시나리오 15%와 비교"),
-        ("admission_rate_actual", fmt(istorm.get("admission_rate_actual")), fmt(iweekly.get("admission_rate_actual")), "설정값 ±5%"),
+        ("admission_rate_actual", fmt(istorm.get("admission_rate_actual")), fmt(iweekly.get("admission_rate_actual")), "설정값 ±5% (틱 3개 이상)"),
         ("admission_delay_p50_s", fmt(istorm.get("admission_delay_p50_s")), fmt(iweekly.get("admission_delay_p50_s")), "보고만"),
         ("admission_delay_p99_s", fmt(istorm.get("admission_delay_p99_s")), fmt(iweekly.get("admission_delay_p99_s")), "보고만"),
         ("admission_tick_p99_ms", fmt(tick_p99(tstorm)), fmt(tick_p99(tweekly)), "≤ 500"),

@@ -8,6 +8,7 @@ import dev.openrun.booking.queue.QueueService
 import dev.openrun.booking.queue.QueueStatus
 import io.micrometer.core.instrument.MeterRegistry
 import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.within
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
@@ -18,6 +19,8 @@ import org.springframework.test.web.servlet.assertj.MockMvcTester
 import java.time.Duration
 import java.time.Instant
 import java.time.OffsetDateTime
+import java.time.ZoneOffset
+import java.time.temporal.ChronoUnit
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -48,6 +51,22 @@ class AdmissionSchedulerTest @Autowired constructor(
             assertThat(queue.enter(showtime.first, member, showtime.second)).isInstanceOf(EnterOutcome.Entered::class.java)
             member
         }
+
+    /** Writes `count` admitted rows sharing one `admitted_at`, the shape AdmissionScheduler.write leaves for one tick. */
+    private fun insertTick(showtimeId: Long, admittedAt: Instant, count: Int) {
+        repeat(count) {
+            jdbc.update(
+                """
+                insert into queue_admission (showtime_id, member_id, entered_at, admitted_at, admitted_seq)
+                values (?, ?, ?, ?, nextval('queue_admission_admitted_seq'))
+                """.trimIndent(),
+                showtimeId,
+                members.incrementAndGet(),
+                admittedAt.minusSeconds(30).atOffset(ZoneOffset.UTC),
+                admittedAt.atOffset(ZoneOffset.UTC),
+            )
+        }
+    }
 
     private fun admittedInOrder(showtimeId: Long): List<Long> =
         jdbc.queryForList(
@@ -153,9 +172,40 @@ class AdmissionSchedulerTest @Autowired constructor(
         assertThat(q.lost).isZero()
         assertThat(q.abandonRate).isEqualTo(0.5)
         assertThat(q.fifoViolationRate).isEqualTo(0.0)
-        assertThat(q.admissionRateActual).isEqualTo(5.0)
+        // All five were admitted in one tick (one admitted_at): the rate needs three ticks.
+        assertThat(q.admissionTicks).isEqualTo(1)
+        assertThat(q.admissionRateActual).isNull()
         assertThat(q.admissionDelayP50Seconds).isBetween(2.0, 10.0)
         assertThat(q.admissionDelayP99Seconds).isGreaterThanOrEqualTo(q.admissionDelayP50Seconds)
+    }
+
+    @Test
+    fun `M2 admission_rate_actual은 첫 틱과 마지막 틱을 뺀 입장 수를 그 사이 시간으로 나눈다`() {
+        // timestamptz keeps microseconds, so truncate to make the inserted instants round-trip exactly.
+        val t0 = Instant.now().minusSeconds(60).truncatedTo(ChronoUnit.MICROS)
+        val st = showtime(t0.minusSeconds(60))
+        insertTick(st.first, t0, 2)
+        insertTick(st.first, t0.plusMillis(1_000), 5)
+        insertTick(st.first, t0.plusMillis(2_200), 3) // partial last tick: excluded
+
+        val q = integrity.check(st.first)
+
+        assertThat(q.admitted).isEqualTo(10)
+        assertThat(q.admissionTicks).isEqualTo(3)
+        // 5 rows of the middle tick / (tick 2 - tick 1 = 1.000 s); the first tick's 2 rows and the last tick's 3 are out.
+        assertThat(q.admissionRateActual).isCloseTo(5.0, within(1e-9))
+
+        val body = assertThat(mvc.get().uri("/api/admin/showtimes/${st.first}/queue-integrity")).hasStatusOk().bodyJson()
+        body.extractingPath("$.admission_ticks").asNumber().satisfies({ assertThat(it.toLong()).isEqualTo(3) })
+        body.extractingPath("$.admission_rate_actual").asNumber().satisfies({ assertThat(it.toDouble()).isCloseTo(5.0, within(1e-9)) })
+
+        // Two ticks: nothing between the first and the last, so no rate.
+        val two = showtime(t0.minusSeconds(60))
+        insertTick(two.first, t0, 4)
+        insertTick(two.first, t0.plusMillis(1_000), 4)
+        val q2 = integrity.check(two.first)
+        assertThat(q2.admissionTicks).isEqualTo(2)
+        assertThat(q2.admissionRateActual).isNull()
     }
 
     @Test
