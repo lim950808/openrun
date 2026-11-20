@@ -13,9 +13,12 @@ interface ShowRepository : JpaRepository<Show, Long> {
 }
 
 interface ShowtimeRepository : JpaRepository<Showtime, Long> {
-    /** Public showtime list (ADR-0008 §1): not yet started, show and venue fetched with it. */
+    /** Public showtime list (ADR-0008 §1, ADR-0009 §4): the 3 earliest not yet started, show and venue fetched with it. */
     @EntityGraph(attributePaths = ["show", "show.venue"])
-    fun findAllByStartsAtAfterOrderByOpenAtAscIdAsc(now: Instant): List<Showtime>
+    fun findFirst3ByStartsAtAfterOrderByOpenAtAscIdAsc(now: Instant): List<Showtime>
+
+    /** Demo scheduler idempotency (ADR-0009 §4): is there already a showtime opening at this instant? */
+    fun existsByOpenAt(openAt: Instant): Boolean
 
     @EntityGraph(attributePaths = ["show", "show.venue"])
     fun findWithShowById(id: Long): Showtime?

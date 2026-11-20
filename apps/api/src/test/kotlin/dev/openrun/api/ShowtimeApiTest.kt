@@ -22,12 +22,16 @@ class ShowtimeApiTest @Autowired constructor(
     private val admin: AdminController,
     private val props: QueueProperties,
 ) {
+    /**
+     * The list is capped at the 3 earliest by `openAt` (ADR-0009 §4) and the shared context holds showtimes from other
+     * tests (`openAt` no earlier than a few minutes ago), so these two open days in the past to land at the front.
+     */
     @Test
     fun `M4_1 회차 목록은 시작 전 회차를 오픈 시각 순으로 보여 주고 지난 회차는 뺀다`() {
         val now = Instant.now().truncatedTo(ChronoUnit.MILLIS)
-        val later = admin.createShowtime(CreateShowtimeRequest(startsAt = now.plus(8, ChronoUnit.DAYS), openAt = now.plus(2, ChronoUnit.DAYS)))
-        val sooner = admin.createShowtime(CreateShowtimeRequest(startsAt = now.plus(7, ChronoUnit.DAYS), openAt = now.plus(1, ChronoUnit.DAYS)))
-        val past = admin.createShowtime(CreateShowtimeRequest(startsAt = now.minus(1, ChronoUnit.HOURS), openAt = now.minus(1, ChronoUnit.DAYS)))
+        val later = admin.createShowtime(CreateShowtimeRequest(startsAt = now.plus(8, ChronoUnit.DAYS), openAt = now.minus(29, ChronoUnit.DAYS)))
+        val sooner = admin.createShowtime(CreateShowtimeRequest(startsAt = now.plus(7, ChronoUnit.DAYS), openAt = now.minus(30, ChronoUnit.DAYS)))
+        val past = admin.createShowtime(CreateShowtimeRequest(startsAt = now.minus(1, ChronoUnit.HOURS), openAt = now.minus(31, ChronoUnit.DAYS)))
 
         val res = mvc.get().uri("/api/showtimes").exchange()
 

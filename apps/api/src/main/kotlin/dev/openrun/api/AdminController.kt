@@ -1,13 +1,7 @@
 package dev.openrun.api
 
 import dev.openrun.booking.hold.IntegrityQuery
-import dev.openrun.booking.hold.ShowtimeInventoryJdbc
 import dev.openrun.booking.queue.QueueIntegrityQuery
-import dev.openrun.catalog.SeatRepository
-import dev.openrun.catalog.ShowRepository
-import dev.openrun.catalog.Showtime
-import dev.openrun.catalog.ShowtimeRepository
-import dev.openrun.catalog.VenueRepository
 import dev.openrun.payment.PaymentIntegrityQuery
 import io.micrometer.core.instrument.MeterRegistry
 import org.springframework.http.HttpStatus
@@ -22,41 +16,23 @@ import java.util.concurrent.TimeUnit
 
 data class CreateShowtimeRequest(val startsAt: Instant, val openAt: Instant)
 
-data class CreateShowtimeResponse(val showtimeId: Long, val seatIds: Map<String, List<Long>>, val totalSeats: Int)
-
-/** Operator endpoints for benchmarks and tests. No auth in 1차. */
+/**
+ * Operator endpoints for benchmarks, tests and the demo server. Guarded by `X-Admin-Token` when
+ * `openrun.admin.token` is set, open when it is blank ([AdminTokenInterceptor], ADR-0009 §3).
+ */
 @RestController
 class AdminController(
-    private val venues: VenueRepository,
-    private val shows: ShowRepository,
-    private val showtimes: ShowtimeRepository,
-    private val seats: SeatRepository,
-    private val inventory: ShowtimeInventoryJdbc,
+    private val provisioner: ShowtimeProvisioner,
     private val integrity: IntegrityQuery,
     private val queueIntegrity: QueueIntegrityQuery,
     private val paymentIntegrity: PaymentIntegrityQuery,
     private val registry: MeterRegistry,
 ) {
-    /**
-     * Two steps per ADR-0003 rule 2: catalog (JPA) creates the showtime and reads the seat map, then booking
-     * (JDBC) provisions `seat_hold` rows from what was read. No JPA write shares the JDBC transaction.
-     */
+    /** Showtime plus its 1,500 `seat_hold` rows; the two-step write is in [ShowtimeProvisioner] (ADR-0003 rule 2). */
     @PostMapping("/api/admin/showtimes")
     @ResponseStatus(HttpStatus.CREATED)
-    fun createShowtime(@RequestBody body: CreateShowtimeRequest): CreateShowtimeResponse {
-        val venue = checkNotNull(venues.findFirstByNameOrderByIdAsc(DevSeeder.VENUE_NAME)) { "venue not seeded" }
-        val show = checkNotNull(shows.findFirstByVenueIdOrderByIdAsc(venue.id!!)) { "show not seeded" }
-        val showtime = showtimes.save(Showtime(show = show, startsAt = body.startsAt, openAt = body.openAt))
-        val venueSeats = seats.findAllByVenueId(venue.id!!).sortedBy { it.id }
-
-        inventory.provision(showtime.id!!, venueSeats.map { it.id!! to it.grade.price })
-
-        return CreateShowtimeResponse(
-            showtimeId = showtime.id!!,
-            seatIds = venueSeats.groupBy({ it.grade.name }, { it.id!! }),
-            totalSeats = venueSeats.size,
-        )
-    }
+    fun createShowtime(@RequestBody body: CreateShowtimeRequest): CreateShowtimeResponse =
+        provisioner.create(startsAt = body.startsAt, openAt = body.openAt)
 
     /** Verification numbers with docs/metrics.md names. */
     @GetMapping("/api/admin/showtimes/{showtimeId}/integrity")

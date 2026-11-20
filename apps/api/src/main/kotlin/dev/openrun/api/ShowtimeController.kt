@@ -24,7 +24,11 @@ data class ShowtimeBody(
     val totalSeats: Long,
 )
 
-/** Public showtime lookup for the web home and queue pages (ADR-0008 §1). Catalog (JPA) reads only. */
+/**
+ * Public showtime lookup for the web home and queue pages (ADR-0008 §1). Catalog (JPA) reads only. The list is the
+ * three earliest showtimes (by `openAt`) that have not started: the demo server opens one every 15 minutes and
+ * keeps the old ones (ADR-0009 §4), and the home page only needs the next few.
+ */
 @RestController
 class ShowtimeController(
     private val showtimes: ShowtimeRepository,
@@ -38,7 +42,7 @@ class ShowtimeController(
 
     @GetMapping("/api/showtimes")
     @Transactional(readOnly = true)
-    fun list(): List<ShowtimeBody> = showtimes.findAllByStartsAtAfterOrderByOpenAtAscIdAsc(clock.instant()).map(::body)
+    fun list(): List<ShowtimeBody> = showtimes.findFirst3ByStartsAtAfterOrderByOpenAtAscIdAsc(clock.instant()).map(::body)
 
     @GetMapping("/api/showtimes/{showtimeId}")
     @Transactional(readOnly = true)
