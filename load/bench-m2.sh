@@ -31,6 +31,15 @@ ADMISSIONS_PER_SECOND="${ADMISSIONS_PER_SECOND:-100}"
 SETTLE_S="${SETTLE_S:-20}"
 mkdir -p load/results
 
+# ADR-0009 §3: with OPENRUN_ADMIN_TOKEN set (demo server), every /api/admin call carries X-Admin-Token and k6 gets the
+# value as -e OPENRUN_ADMIN_TOKEN (its setup/teardown call /api/admin too). Unset = no header, as before.
+ADMIN_CURL=()
+ADMIN_K6=()
+if [[ -n "${OPENRUN_ADMIN_TOKEN:-}" ]]; then
+  ADMIN_CURL=(-H "X-Admin-Token: $OPENRUN_ADMIN_TOKEN")
+  ADMIN_K6=(-e "OPENRUN_ADMIN_TOKEN=$OPENRUN_ADMIN_TOKEN")
+fi
+
 echo "reminder: the API must run with the queue on and OPENRUN_QUEUE_ADMISSIONS_PER_SECOND=$ADMISSIONS_PER_SECOND"
 
 K6_BASE_URL="$BASE_URL"
@@ -44,7 +53,7 @@ fi
 run_k6() {
   local script="$1"
   shift
-  local args=(run --quiet -e "BASE_URL=$K6_BASE_URL" "$@")
+  local args=(run --quiet -e "BASE_URL=$K6_BASE_URL" ${ADMIN_K6[@]+"${ADMIN_K6[@]}"} "$@")
   local status=0
   if command -v k6 > /dev/null; then
     k6 "${args[@]}" "$script" || status=$?
@@ -58,14 +67,17 @@ run_k6() {
 # new_showtime: prints the id of a showtime opening OPEN_DELAY_S from now.
 new_showtime() {
   python3 - "$BASE_URL" "$OPEN_DELAY_S" <<'PY'
-import datetime, json, sys, urllib.request
+import datetime, json, os, sys, urllib.request
 base, delay = sys.argv[1], int(sys.argv[2])
 now = datetime.datetime.now(datetime.timezone.utc)
 body = json.dumps({
     "startsAt": (now + datetime.timedelta(days=7)).isoformat(),
     "openAt": (now + datetime.timedelta(seconds=delay)).isoformat(),
 }).encode()
-req = urllib.request.Request(f"{base}/api/admin/showtimes", body, {"Content-Type": "application/json"})
+headers = {"Content-Type": "application/json"}
+if os.environ.get("OPENRUN_ADMIN_TOKEN"):
+    headers["X-Admin-Token"] = os.environ["OPENRUN_ADMIN_TOKEN"]
+req = urllib.request.Request(f"{base}/api/admin/showtimes", body, headers)
 print(json.load(urllib.request.urlopen(req))["showtimeId"])
 PY
 }
@@ -73,7 +85,7 @@ PY
 # http_requests [reset]: GET /queue/me server-time snapshot. -G --data-urlencode percent-encodes the braces of the
 # templated uri (curl: -G appends --data-urlencode "name=content" to the URL query with content URL-encoded).
 http_requests() {
-  curl -fsS -G "$BASE_URL/api/admin/diagnostics/http-requests" \
+  curl -fsS ${ADMIN_CURL[@]+"${ADMIN_CURL[@]}"} -G "$BASE_URL/api/admin/diagnostics/http-requests" \
     --data-urlencode "uri=/api/showtimes/{showtimeId}/queue/me" --data-urlencode "reset=${1:-false}"
 }
 
@@ -81,24 +93,24 @@ STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 
 STORM_ID="$(new_showtime)"
 echo "=== storm showtime $STORM_ID: $VUS VUs x ${STORM_DURATION_S}s ($K6_BASE_URL)"
-curl -sf "$BASE_URL/api/admin/diagnostics/queue-ticks?reset=true" > /dev/null
+curl -sf ${ADMIN_CURL[@]+"${ADMIN_CURL[@]}"} "$BASE_URL/api/admin/diagnostics/queue-ticks?reset=true" > /dev/null
 http_requests true > /dev/null
 run_k6 load/k6/queue-storm.js -e "SHOWTIME_ID=$STORM_ID" -e "VUS=$VUS" -e "DURATION_S=$STORM_DURATION_S"
-curl -fsS "$BASE_URL/api/admin/showtimes/$STORM_ID/queue-integrity" > "load/results/m2-integrity-storm-$STAMP.json"
-curl -fsS "$BASE_URL/api/admin/diagnostics/queue-ticks" > "load/results/m2-ticks-storm-$STAMP.json"
+curl -fsS ${ADMIN_CURL[@]+"${ADMIN_CURL[@]}"} "$BASE_URL/api/admin/showtimes/$STORM_ID/queue-integrity" > "load/results/m2-integrity-storm-$STAMP.json"
+curl -fsS ${ADMIN_CURL[@]+"${ADMIN_CURL[@]}"} "$BASE_URL/api/admin/diagnostics/queue-ticks" > "load/results/m2-ticks-storm-$STAMP.json"
 http_requests > "load/results/m2-http-storm-$STAMP.json"
 
 WEEKLY_ID="$(new_showtime)"
 echo "=== weekly showtime $WEEKLY_ID: $MEMBERS members over ${DURATION_S}s ($K6_BASE_URL)"
-curl -sf "$BASE_URL/api/admin/diagnostics/queue-ticks?reset=true" > /dev/null
+curl -sf ${ADMIN_CURL[@]+"${ADMIN_CURL[@]}"} "$BASE_URL/api/admin/diagnostics/queue-ticks?reset=true" > /dev/null
 http_requests true > /dev/null
 run_k6 load/k6/weekly-openrun.js -e "SHOWTIME_ID=$WEEKLY_ID" -e "DURATION_S=$DURATION_S" -e "MEMBERS=$MEMBERS" \
   -e "ADMISSIONS_PER_SECOND=$ADMISSIONS_PER_SECOND"
-curl -fsS "$BASE_URL/api/admin/showtimes/$WEEKLY_ID/queue-integrity" > "load/results/m2-integrity-weekly-$STAMP.json"
-curl -fsS "$BASE_URL/api/admin/diagnostics/queue-ticks" > "load/results/m2-ticks-weekly-$STAMP.json"
+curl -fsS ${ADMIN_CURL[@]+"${ADMIN_CURL[@]}"} "$BASE_URL/api/admin/showtimes/$WEEKLY_ID/queue-integrity" > "load/results/m2-integrity-weekly-$STAMP.json"
+curl -fsS ${ADMIN_CURL[@]+"${ADMIN_CURL[@]}"} "$BASE_URL/api/admin/diagnostics/queue-ticks" > "load/results/m2-ticks-weekly-$STAMP.json"
 http_requests > "load/results/m2-http-weekly-$STAMP.json"
 echo "=== waiting ${SETTLE_S}s for the payment janitor"
 sleep "$SETTLE_S"
-curl -fsS "$BASE_URL/api/admin/showtimes/$WEEKLY_ID/payment-integrity" > "load/results/m3-payment-integrity-weekly-$STAMP.json"
+curl -fsS ${ADMIN_CURL[@]+"${ADMIN_CURL[@]}"} "$BASE_URL/api/admin/showtimes/$WEEKLY_ID/payment-integrity" > "load/results/m3-payment-integrity-weekly-$STAMP.json"
 
 python3 load/report/m2_report.py

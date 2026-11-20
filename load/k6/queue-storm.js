@@ -41,7 +41,9 @@ export const options = {
 };
 
 http.setResponseCallback(http.expectedStatuses(200, 201));
-const ADMIN = { headers: { 'Content-Type': 'application/json' }, tags: { name: 'admin' } };
+// ADR-0009 §3: X-Admin-Token when the API has openrun.admin.token set (demo server); no header otherwise.
+const ADMIN_HEADERS = Object.assign({ 'Content-Type': 'application/json' }, __ENV.OPENRUN_ADMIN_TOKEN ? { 'X-Admin-Token': __ENV.OPENRUN_ADMIN_TOKEN } : {});
+const ADMIN = { headers: ADMIN_HEADERS, tags: { name: 'admin' } };
 
 const rankDrift = new Counter('rank_drift_count');
 const polls = new Counter('queue_polls');

@@ -22,6 +22,15 @@ fi
 BASE_URL="${BASE_URL:-http://localhost:8080}"
 mkdir -p load/results
 
+# ADR-0009 §3: with OPENRUN_ADMIN_TOKEN set (demo server), every /api/admin call carries X-Admin-Token and k6 gets the
+# value as -e OPENRUN_ADMIN_TOKEN (its setup/teardown call /api/admin too). Unset = no header, as before.
+ADMIN_CURL=()
+ADMIN_K6=()
+if [[ -n "${OPENRUN_ADMIN_TOKEN:-}" ]]; then
+  ADMIN_CURL=(-H "X-Admin-Token: $OPENRUN_ADMIN_TOKEN")
+  ADMIN_K6=(-e "OPENRUN_ADMIN_TOKEN=$OPENRUN_ADMIN_TOKEN")
+fi
+
 echo "reminder: start the API with the bench settings from the scenario yaml 'app:' block:"
 echo "  OPENRUN_HOLD_TTL=PT10S OPENRUN_HOLD_JANITOR_DELAY_MS=1000 OPENRUN_HOLD_ALLOW_OVERRIDE=true OPENRUN_QUEUE_REQUIRE_ACCESS_TOKEN=false"
 
@@ -29,7 +38,7 @@ echo "  OPENRUN_HOLD_TTL=PT10S OPENRUN_HOLD_JANITOR_DELAY_MS=1000 OPENRUN_HOLD_A
 run_k6() {
   local script="$1" strategy="$2"
   shift 2
-  local args=(run --quiet -e "STRATEGY=$strategy" -e "BASE_URL=$K6_BASE_URL" "$@")
+  local args=(run --quiet -e "STRATEGY=$strategy" -e "BASE_URL=$K6_BASE_URL" ${ADMIN_K6[@]+"${ADMIN_K6[@]}"} "$@")
   if command -v k6 > /dev/null; then
     k6 "${args[@]}" "$script"
   else
@@ -56,9 +65,9 @@ for run in $(seq 1 "$RUNS"); do
   for strategy in "${STRATEGY_LIST[@]}"; do
     echo "=== run $run/$RUNS strategy $strategy arrival ($K6_BASE_URL)"
     # Phase timers are cumulative per strategy: reset before the arrival run, snapshot right after it (before burst).
-    curl -sf "$BASE_URL/api/admin/diagnostics/hold-phases?strategy=$strategy&reset=true" > /dev/null
+    curl -sf ${ADMIN_CURL[@]+"${ADMIN_CURL[@]}"} "$BASE_URL/api/admin/diagnostics/hold-phases?strategy=$strategy&reset=true" > /dev/null
     run_k6 load/k6/bench-m1-hold.js "$strategy" ${ARRIVAL_ENV[@]+"${ARRIVAL_ENV[@]}"}
-    curl -sf "$BASE_URL/api/admin/diagnostics/hold-phases?strategy=$strategy" > "load/results/m1-phases-$strategy-run$run.json"
+    curl -sf ${ADMIN_CURL[@]+"${ADMIN_CURL[@]}"} "$BASE_URL/api/admin/diagnostics/hold-phases?strategy=$strategy" > "load/results/m1-phases-$strategy-run$run.json"
     echo "=== run $run/$RUNS strategy $strategy burst ($K6_BASE_URL)"
     run_k6 load/k6/bench-m1-burst.js "$strategy" "${BURST_ENV[@]}"
   done

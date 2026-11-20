@@ -43,6 +43,15 @@ mkdir -p "$RESULTS_DIR"
 RESULTS_ABS="$(cd "$RESULTS_DIR" && pwd)"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 
+# ADR-0009 §3: with OPENRUN_ADMIN_TOKEN set (demo server), every /api/admin call carries X-Admin-Token and k6 gets the
+# value as -e OPENRUN_ADMIN_TOKEN (its setup/teardown call /api/admin too). Unset = no header, as before.
+ADMIN_CURL=()
+ADMIN_K6=()
+if [[ -n "${OPENRUN_ADMIN_TOKEN:-}" ]]; then
+  ADMIN_CURL=(-H "X-Admin-Token: $OPENRUN_ADMIN_TOKEN")
+  ADMIN_K6=(-e "OPENRUN_ADMIN_TOKEN=$OPENRUN_ADMIN_TOKEN")
+fi
+
 echo "reminder: the API must run with the queue on and OPENRUN_QUEUE_ADMISSIONS_PER_SECOND=$ADMISSIONS_PER_SECOND"
 
 K6_BASE_URL="$BASE_URL"
@@ -83,13 +92,16 @@ if [[ -z "${OPEN_AT_ISO:-}" ]]; then echo "could not compute openAt" >&2; exit 1
 # 2. Create the showtime (startsAt = openAt + 7 days). The response keeps the seat ids for the k6 setup.
 SEATS_FILE="$RESULTS_ABS/weekly-seats-$STAMP.json"
 python3 - "$BASE_URL" "$OPEN_AT_ISO" > "$SEATS_FILE" <<'PY'
-import datetime, json, sys, urllib.request
+import datetime, json, os, sys, urllib.request
 base, open_at = sys.argv[1], datetime.datetime.fromisoformat(sys.argv[2])
 body = json.dumps({
     "startsAt": (open_at + datetime.timedelta(days=7)).isoformat(),
     "openAt": open_at.isoformat(),
 }).encode()
-req = urllib.request.Request(f"{base}/api/admin/showtimes", body, {"Content-Type": "application/json"})
+headers = {"Content-Type": "application/json"}
+if os.environ.get("OPENRUN_ADMIN_TOKEN"):
+    headers["X-Admin-Token"] = os.environ["OPENRUN_ADMIN_TOKEN"]
+req = urllib.request.Request(f"{base}/api/admin/showtimes", body, headers)
 print(urllib.request.urlopen(req).read().decode())
 PY
 SHOWTIME_ID="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["showtimeId"])' "$SEATS_FILE")"
@@ -114,8 +126,9 @@ done
 k6_args=(run --quiet -e "BASE_URL=$K6_BASE_URL" -e "SHOWTIME_ID=$SHOWTIME_ID" -e "DURATION_S=$DURATION_S"
   -e "ADMISSIONS_PER_SECOND=$ADMISSIONS_PER_SECOND" -e "SCENARIO=$SCENARIO")
 if [[ -n "$MEMBERS" ]]; then k6_args+=(-e "MEMBERS=$MEMBERS"); fi
+k6_args+=(${ADMIN_K6[@]+"${ADMIN_K6[@]}"})
 # Admission tick times (openrun.queue.tick) for this run only; saved after the settle as weekly-ticks.
-curl -sf "$BASE_URL/api/admin/diagnostics/queue-ticks?reset=true" > /dev/null || echo "queue-ticks reset failed"
+curl -sf ${ADMIN_CURL[@]+"${ADMIN_CURL[@]}"} "$BASE_URL/api/admin/diagnostics/queue-ticks?reset=true" > /dev/null || echo "queue-ticks reset failed"
 K6_STARTED_AT="$(now_iso)"
 echo "=== k6 weekly-openrun.js from $K6_STARTED_AT: ${MEMBERS:-yaml} members over ${DURATION_S}s ($K6_BASE_URL)"
 status=0
@@ -131,11 +144,11 @@ if [[ $status -ne 0 ]]; then echo "k6 exited with $status (99 = thresholds cross
 # The k6 summary written by this run: the newest m2-weekly-*.json.
 K6_SUMMARY="$(ls -t "$RESULTS_ABS"/m2-weekly-*.json 2> /dev/null | head -1 || true)"
 
-# 5. Settle, then verify. A failed fetch leaves the file out; the report prints n/a for it.
+# 5. Settle, then verify. A failed fetch leaves the file out; the report prints n/a for it. All four are /api/admin.
 echo "=== waiting ${SETTLE_S}s (hold TTL + payment janitor) before the integrity checks"
 sleep "$SETTLE_S"
 fetch() {
-  curl -fsS "$BASE_URL$1" > "$2.tmp" && mv "$2.tmp" "$2" || { rm -f "$2.tmp"; echo "fetch failed: $1"; }
+  curl -fsS ${ADMIN_CURL[@]+"${ADMIN_CURL[@]}"} "$BASE_URL$1" > "$2.tmp" && mv "$2.tmp" "$2" || { rm -f "$2.tmp"; echo "fetch failed: $1"; }
 }
 fetch "/api/admin/showtimes/$SHOWTIME_ID/integrity" "$RESULTS_ABS/weekly-integrity-$STAMP.json"
 fetch "/api/admin/showtimes/$SHOWTIME_ID/queue-integrity" "$RESULTS_ABS/weekly-queue-integrity-$STAMP.json"

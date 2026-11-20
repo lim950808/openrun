@@ -68,7 +68,9 @@ export const options = {
 };
 
 http.setResponseCallback(http.expectedStatuses(201, 409));
-const OK_ADMIN = { responseCallback: http.expectedStatuses(200, 201), tags: { name: 'admin' } };
+// ADR-0009 §3: X-Admin-Token when the API has openrun.admin.token set (demo server); no header otherwise.
+const ADMIN_HEADERS = Object.assign({ 'Content-Type': 'application/json' }, __ENV.OPENRUN_ADMIN_TOKEN ? { 'X-Admin-Token': __ENV.OPENRUN_ADMIN_TOKEN } : {});
+const OK_ADMIN = { headers: ADMIN_HEADERS, responseCallback: http.expectedStatuses(200, 201), tags: { name: 'admin' } };
 
 const holdSuccess = new Counter('hold_success');
 const holdSeatTaken = new Counter('hold_seat_taken');
@@ -85,7 +87,7 @@ export function setup() {
   const created = http.post(
     `${BASE_URL}/api/admin/showtimes`,
     JSON.stringify({ startsAt: new Date(now + 7 * 86400e3).toISOString(), openAt: new Date(now).toISOString() }),
-    Object.assign({ headers: { 'Content-Type': 'application/json' } }, OK_ADMIN),
+    OK_ADMIN,
   );
   if (created.status !== 201) throw new Error(`create showtime failed: ${created.status} ${created.body}`);
   const showtimeId = created.json('showtimeId');

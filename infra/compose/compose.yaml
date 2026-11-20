@@ -1,17 +1,32 @@
 name: openrun
 
+# Profiles
+#   core  postgres + redis for local development and CI; the API runs on the host (./gradlew :apps:api:bootRun).
+#   demo  the whole stack on one VM behind Caddy (ADR-0008 §4, ADR-0009 §2). Only Caddy publishes ports (80/443).
+#         Locally:  docker compose -f infra/compose/compose.yaml --profile demo up -d --build --wait   → http://localhost/
+#         Server:   docker compose --env-file .env -f infra/compose/compose.yaml --profile demo pull && ... up -d --wait
+#         (compose reads .env from this directory, not the repo root, so the server passes --env-file; docs/deploy.md)
+# Memory limits are the 2 GB VM budget from ADR-0009 §2 (api 1 GiB → heap 768 MiB via -XX:MaxRAMPercentage=75).
+# Secrets (OPENRUN_TOKEN_SECRET, OPENRUN_ADMIN_TOKEN, OPENRUN_TOSS_*, POSTGRES_PASSWORD) come from the environment or
+# the gitignored .env only (CLAUDE.md rule 7). Empty-string defaults keep application.yml's dev defaults in effect.
+
 services:
   postgres:
     image: postgres:17-alpine
     profiles: ["core", "demo"]
+    restart: unless-stopped
+    mem_limit: 512m
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-openrun}
       POSTGRES_USER: ${POSTGRES_USER:-openrun}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-openrun}
     # Logical decoding is enabled up front so Debezium (2차) can attach without a restart.
     command: ["postgres", "-c", "wal_level=logical", "-c", "max_wal_senders=10", "-c", "max_replication_slots=10"]
+    # Bound to the host loopback: still reachable for local dev/CI (core), never on a public interface of the demo
+    # server (Docker publishes to 0.0.0.0 by default, bypassing the host firewall). Compose cannot make `ports`
+    # profile-conditional, so one binding serves both profiles.
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
       interval: 2s
@@ -23,21 +38,27 @@ services:
   redis:
     image: redis:7-alpine
     profiles: ["core", "demo"]
+    restart: unless-stopped
+    mem_limit: 128m
+    # Loopback only, same reason as postgres.
     ports:
-      - "${REDIS_PORT:-6379}:6379"
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 2s
       timeout: 3s
       retries: 30
 
-  # demo profile (ADR-0008 §4): the whole stack on one VM. `docker compose -f infra/compose/compose.yaml --profile demo up -d --build`
-  # Secrets (OPENRUN_TOKEN_SECRET, OPENRUN_TOSS_*) come from the environment or hosting secrets only (CLAUDE.md rule 7).
+  # image + build on the same service (ADR-0009 §2): the server pulls the GHCR tag published by publish-images.yml,
+  # local runs build the same Dockerfile with --build. OPENRUN_IMAGE_TAG=sha-xxxxxxx rolls back.
   api:
+    image: ghcr.io/lim950808/openrun-api:${OPENRUN_IMAGE_TAG:-latest}
     build:
       context: ../..
       dockerfile: apps/api/Dockerfile
     profiles: ["demo"]
+    restart: unless-stopped
+    mem_limit: 1g
     environment:
       OPENRUN_DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-openrun}
       OPENRUN_DB_USER: ${POSTGRES_USER:-openrun}
@@ -51,26 +72,60 @@ services:
       OPENRUN_TOSS_SECRET_KEY: ${OPENRUN_TOSS_SECRET_KEY:-}
       OPENRUN_TOSS_CLIENT_KEY: ${OPENRUN_TOSS_CLIENT_KEY:-}
       OPENRUN_TOSS_WEBHOOK_SECRET: ${OPENRUN_TOSS_WEBHOOK_SECRET:-dev-only-not-a-secret-openrun-webhook-key}
+      # ADR-0009 §3: empty = /api/admin/** stays open (local). The demo server sets a token in .env.
+      OPENRUN_ADMIN_TOKEN: ${OPENRUN_ADMIN_TOKEN:-}
+      # ADR-0009 §4: PT0S = off (local). The demo server uses PT15M so visitors always find an upcoming showtime.
+      OPENRUN_DEMO_SHOWTIME_EVERY: ${OPENRUN_DEMO_SHOWTIME_EVERY:-PT0S}
+    # curl ships in the eclipse-temurin JRE image (ADR-0009 §1). /actuator is reachable only inside the compose network.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/actuator/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 20s
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-    ports:
-      - "${API_PORT:-8080}:8080"
 
   web:
+    image: ghcr.io/lim950808/openrun-web:${OPENRUN_IMAGE_TAG:-latest}
     build:
       context: ../../apps/web
       args:
         API_BASE_URL: http://api:8080
     profiles: ["demo"]
+    restart: unless-stopped
+    mem_limit: 256m
     environment:
       API_BASE_URL: http://api:8080
     depends_on:
-      - api
+      api:
+        condition: service_healthy
+
+  # The only public entry (ADR-0009 §2): /api/* → api, /actuator/* → 404, everything else → web (Caddyfile).
+  # DEMO_SITE_ADDRESS=:80 serves plain HTTP (local); a domain turns on automatic HTTPS (certificates in caddy-data).
+  # CADDY_HTTP_PORT/CADDY_HTTPS_PORT move the host side when 80/443 are taken locally (the site address stays :80).
+  caddy:
+    image: caddy:2-alpine
+    profiles: ["demo"]
+    restart: unless-stopped
+    mem_limit: 64m
     ports:
-      - "${WEB_PORT:-3000}:3000"
+      - "${CADDY_HTTP_PORT:-80}:80"
+      - "${CADDY_HTTPS_PORT:-443}:443"
+    environment:
+      DEMO_SITE_ADDRESS: ${DEMO_SITE_ADDRESS:-:80}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - api
+      - web
 
 volumes:
   postgres-data:
+  caddy-data:
+  caddy-config:

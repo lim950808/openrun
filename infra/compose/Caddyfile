@@ -1,0 +1,26 @@
+# ADR-0009 §2: the one public entry of the demo stack. Mounted read-only into the caddy service (compose.yaml).
+# DEMO_SITE_ADDRESS  :80                → plain HTTP (local default)
+#                    openrun.example.com → automatic HTTPS (Let's Encrypt), HTTP redirected to HTTPS
+{$DEMO_SITE_ADDRESS} {
+	encode gzip
+
+	log {
+		output stdout
+		format json
+	}
+
+	# Polling, seats, payments, Toss webhook (/api/webhooks/toss), Fake PG: straight to the API, not through Next.
+	handle /api/* {
+		reverse_proxy api:8080
+	}
+
+	# Never public. Operators: docker compose exec api curl -fsS localhost:8080/actuator/health
+	handle /actuator/* {
+		respond 404
+	}
+
+	# Pages (home, queue, seat map, payment result). Toss successUrl returns here as /reservations/{id}.
+	handle {
+		reverse_proxy web:3000
+	}
+}

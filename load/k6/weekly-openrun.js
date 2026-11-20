@@ -91,6 +91,8 @@ export const options = {
 
 http.setResponseCallback(http.expectedStatuses(200, 201, 202, 409));
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
+// ADR-0009 §3: X-Admin-Token when the API has openrun.admin.token set (demo server); no header otherwise.
+const ADMIN_HEADERS = Object.assign({}, JSON_HEADERS, __ENV.OPENRUN_ADMIN_TOKEN ? { 'X-Admin-Token': __ENV.OPENRUN_ADMIN_TOKEN } : {});
 
 const entered = new Counter('queue_entered');
 const abandonedByBot = new Counter('queue_abandoned_by_bot');
@@ -212,7 +214,7 @@ export function setup() {
     const created = http.post(
       `${BASE_URL}/api/admin/showtimes`,
       JSON.stringify({ startsAt: new Date(now + 7 * 86400e3).toISOString(), openAt: new Date(now + OPEN_DELAY_S * 1000).toISOString() }),
-      { headers: JSON_HEADERS, tags: { name: 'admin' } },
+      { headers: ADMIN_HEADERS, tags: { name: 'admin' } },
     );
     if (created.status !== 201) throw new Error(`create showtime failed: ${created.status} ${created.body}`);
     showtimeId = created.json('showtimeId');
