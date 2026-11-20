@@ -63,7 +63,7 @@ M1~M3로 API는 대기열 → 좌석 선점 → 결제까지 이어진다. 그�
 
 ### 4. 배포 단위는 컨테이너 둘, 공개 URL은 사용자가 고르는 호스팅에
 
-`apps/api/Dockerfile`(Gradle 멀티스테이지 → JRE 21)과 `apps/web/Dockerfile`(Next standalone)을 두고 compose 프로필 `demo`(postgres · redis · api · web)로 한 VM에서 뜨게 한다. 어느 호스팅에 올릴지(Fly.io · Railway · Vercel + 외부 Postgres/Redis 등)는 계정·비용이 걸린 사용자 결정이라 이 ADR은 정하지 않는다. 비밀은 호스팅의 시크릿으로만 넣는다(CLAUDE.md 규칙 7).
+`apps/api/Dockerfile`(Gradle 멀티스테이지 → JRE 21)과 `apps/web/Dockerfile`(Next standalone)을 두고 compose 프로필 `demo`(postgres · redis · api · web)로 한 VM에서 뜨게 한다. 어느 호스팅에 올릴지(Fly.io · Railway · Vercel + 외부 Postgres/Redis 등)는 계정·비용이 걸린 사용자 결정이라 이 ADR은 정하지 않는다. 비밀은 호스팅의 시크릿으로만 넣는다(CLAUDE.md 규칙 7). 호스팅과 무관한 부분(이미지 발행, Caddy, 관리자 토큰, 데모 회차)은 [ADR-0009](0009-deploy-images-and-demo-host.md)가 정한다.
 
 ## 대안과 기각 이유
 

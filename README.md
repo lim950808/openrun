@@ -23,7 +23,7 @@ docker run --rm -i --network host grafana/k6 run - < load/k6/smoke.js
 load/bench-m2.sh                                             # M2 새로고침 폭풍 + 주간 오픈런 봇(결제 포함, OPENRUN_PAYMENT_PG=fake)
 OPEN_DELAY_S=90 DURATION_S=60 MEMBERS=60 SETTLE_S=30 load/weekly-openrun.sh   # 주간 오픈런 축소 실행(API 실행 중)
 python3 load/report/weekly_report.py --date $(date +%F)      # 리포트 생성(토요일엔 weekly-openrun.yml이 자동 커밋)
-docker compose -f infra/compose/compose.yaml --profile demo up --build   # API + 화면 컨테이너(배포 단위)
+docker compose -f infra/compose/compose.yaml --profile demo up -d --build --wait   # Caddy(:80) + API + 화면 컨테이너. http://localhost/ (ADR-0009, 운영 절차는 docs/deploy.md)
 ```
 
 작업 규칙과 레포 구조는 `CLAUDE.md`.
@@ -35,7 +35,8 @@ docker compose -f infra/compose/compose.yaml --profile demo up --build   # API +
 - `docs/requirements.md` — 요구사항 v1: 도메인 고정값(좌석 수·가격·TTL), 주간 운영 일정, 사용자 스토리와 수용 기준, 비기능 목표, 봇 시나리오 파라미터
 - `docs/glossary.md` — 용어집: 한글·코드 식별자·정의, 쓰지 않는 말
 - `docs/metrics.md` — 지표 정의: 단계별 지표의 수식·분모·측정 지점·목표
-- `docs/adr/` — ADR-0001 1차 범위 축소, ADR-0002 합성 데이터 한계, ADR-0003 JPA·JDBC 경계, ADR-0004 상태 전이 규칙, ADR-0005 좌석 재고 행과 락 전략, ADR-0006 대기열, ADR-0007 결제 어댑터와 Fake PG, ADR-0008 화면·주간 오픈런 자동 실행·리포트 발행
+- `docs/adr/` — ADR-0001 1차 범위 축소, ADR-0002 합성 데이터 한계, ADR-0003 JPA·JDBC 경계, ADR-0004 상태 전이 규칙, ADR-0005 좌석 재고 행과 락 전략, ADR-0006 대기열, ADR-0007 결제 어댑터와 Fake PG, ADR-0008 화면·주간 오픈런 자동 실행·리포트 발행, ADR-0009 이미지 발행·데모 서버 구성·관리자 API 보호
+- `docs/deploy.md` — 데모 서버 운영 절차: 서버 준비, `.env`, `compose pull && up`, 확인, 업데이트·되돌리기, 백업
 - `docs/reports/` — 주간 오픈런 리포트 아카이브: 매주 토요일 자동 발행(`README.md` 목록, `_template.md`, 러너 실행 기록 `runs/`)
 - `docs/research/01-reservation-queue-concurrency.md` — 예약·대기열·좌석 선점 동시성 오픈소스/레퍼런스
 - `docs/research/02-payment-commerce.md` — 결제·커머스: [payment-consistency-lab](https://github.com/jaehafe/payment-consistency-lab) 위에 무엇을 쌓을 것인가

@@ -34,7 +34,8 @@ modules/outbox           outbox 적재
 load/scenarios           봇 파라미터 yaml (공개, 복원 검증의 정답)
 load/k6                  k6 스크립트
 load/report              리포트 생성 스크립트(m1·m2 표, weekly_report.py 주간 리포트)
-infra/compose            compose 프로필: core (postgres · redis), demo (core + api + web 컨테이너)
+infra/compose            compose 프로필: core (postgres · redis), demo (core + caddy + api + web, GHCR 이미지 또는 로컬 빌드). Caddyfile 포함
+docs/deploy.md           데모 서버 운영 절차(ADR-0009)
 docs/reports             주간 리포트 아카이브. 토요일 weekly-openrun.yml이 `_template.md` 모양으로 자동 커밋, 서술 두 절은 사람이 채운다
 ```
 
@@ -45,6 +46,7 @@ docs/reports             주간 리포트 아카이브. 토요일 weekly-openrun
 ./gradlew :apps:api:test --tests '*Boot4GateSmokeTest*'
 ./gradlew :apps:api:test --tests '*ArchitectureTest*'
 docker compose -f infra/compose/compose.yaml --profile core up -d --wait
+docker compose -f infra/compose/compose.yaml --profile demo up -d --build --wait   # 데모 전체(Caddy :80). 관리자 API는 OPENRUN_ADMIN_TOKEN이 비면 열림
 ./gradlew :apps:api:bootRun                       # localhost:8080, /api/ping, /actuator/health
 OPENRUN_PAYMENT_PG=toss ./gradlew :apps:api:bootRun  # 토스 실연동(.env에 테스트 키). 결제 페이지(/reservations/{id})가 토스 위젯을 연다
 (cd apps/web && npm ci && npm run dev)            # 화면 localhost:3000. npm run lint|typecheck|test|build|e2e (e2e는 API 8080 필요)
@@ -70,4 +72,4 @@ OPEN_DELAY_S=90 DURATION_S=60 MEMBERS=60 SETTLE_S=30 load/weekly-openrun.sh   # 
 
 ## 현재 단계
 
-M4 화면·자동화 구현 완료(ADR-0008), 1차 남은 것은 공개 배포(호스팅은 사용자 결정). 주간 리포트는 토요일마다 자동 커밋되며 서술 두 절(배운 것·미해결)은 사람이 채운다. 리포트 #1(2026-11-28 토) 전 실험 두 건을 코드로 넣었다: 실험 전략 `REDIS_LUA_OUTSIDE_TX`(ADR-0005 §7, bench-m1 `strategies` 입력으로 REDIS_LUA와 비교)와 입장 스케줄러 틱당 일괄 처리(ADR-0006 §2, `admission_tick_p99_ms`). 2026-11-17에 측정을 고쳤다: `admission_rate_actual`은 틱 기준 수식(첫·마지막 틱 제외), 순번 API는 k6 체감(`rank_api_p99_ms`)과 서버 처리(`rank_api_server_p99_ms`, `GET /api/admin/diagnostics/http-requests`)를 나눠 본다. 러너 결과를 보고 ADR-0005 기본 전략을 확정한다.
+M4 화면·자동화 구현 완료(ADR-0008), 1차 남은 것은 공개 배포(호스팅은 사용자 결정). 주간 리포트는 토요일마다 자동 커밋되며 서술 두 절(배운 것·미해결)은 사람이 채운다. 리포트 #1(2026-11-28 토) 전 실험 두 건을 코드로 넣었다: 실험 전략 `REDIS_LUA_OUTSIDE_TX`(ADR-0005 §7, bench-m1 `strategies` 입력으로 REDIS_LUA와 비교)와 입장 스케줄러 틱당 일괄 처리(ADR-0006 §2, `admission_tick_p99_ms`). 2026-11-17에 측정을 고쳤다: `admission_rate_actual`은 틱 기준 수식(첫·마지막 틱 제외), 순번 API는 k6 체감(`rank_api_p99_ms`)과 서버 처리(`rank_api_server_p99_ms`, `GET /api/admin/diagnostics/http-requests`)를 나눠 본다. 러너 결과를 보고 ADR-0005 기본 전략을 확정한다. 2026-11-20 공개 배포의 호스팅 무관 부분을 ADR-0009로 정했다(GHCR 이미지 발행 `publish-images.yml`, Caddy 단일 공개 포트, `X-Admin-Token`, 데모 회차 15분 스케줄러). 호스팅은 사용자 결정 대기.
