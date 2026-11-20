@@ -121,5 +121,5 @@ Caddy 인증서는 볼륨 `caddy-data`에 있다. `oc down -v`는 postgres 데�
 - 공개 API에 레이트리밋이 없다(1.5차). 입장 속도 제한과 1인당 활성 예약 1건만 있다. 공격을 받으면 `oc stop caddy`로 끈다.
 - 과거 회차가 15분마다 쌓인다. 홈 목록은 가장 이른 3개만 보여 주고, 데이터는 2차 리플레이 재료로 남긴다(ADR-0009 §4).
 - `/actuator/*`는 Caddy가 404로 막는다. 메트릭·헬스는 서버 안에서 `oc exec api curl localhost:8080/actuator/...`로 본다.
-- 이미지는 `linux/amd64`만 발행한다. arm64 서버를 쓰려면 ADR-0009 §1대로 arm64 러너 매트릭스를 먼저 추가한다.
+- 이미지는 `linux/amd64`만 발행한다. arm64 서버를 쓰려면 ADR-0009 §1대로 arm64 러너 매트릭스를 먼저 추가한다. Apple Silicon 맥에서는 `pull`이 "no matching manifest for linux/arm64"로 실패하고 compose가 로컬 빌드로 넘어가므로(README의 `--build` 경로), 발행된 이미지를 그대로 써 보려면 `DOCKER_DEFAULT_PLATFORM=linux/amd64`로 받는다(Rosetta 에뮬레이션, 느리다).
 - 로컬에서 80·443이 이미 쓰이면 `CADDY_HTTP_PORT=8088 CADDY_HTTPS_PORT=8443`로 호스트 쪽 포트만 옮긴다(사이트 주소는 `:80` 그대로). 로컬 5432·6379가 쓰이면 `POSTGRES_PORT`·`REDIS_PORT`.

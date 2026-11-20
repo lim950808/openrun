@@ -100,6 +100,14 @@ services:
     mem_limit: 256m
     environment:
       API_BASE_URL: http://api:8080
+    # node:24-alpine ships busybox wget. Without this `up --wait` returns before Next listens and the first request
+    # through Caddy is a 502.
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
     depends_on:
       api:
         condition: service_healthy
@@ -122,8 +130,10 @@ services:
       - caddy-data:/data
       - caddy-config:/config
     depends_on:
-      - api
-      - web
+      api:
+        condition: service_healthy
+      web:
+        condition: service_healthy
 
 volumes:
   postgres-data:
