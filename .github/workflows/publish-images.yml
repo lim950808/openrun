@@ -50,14 +50,16 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # The checkout above is a detached HEAD (workflow_run.head_sha), so the sha tag is taken from the checked-out
+      # commit explicitly: metadata-action's `context: git` cannot infer a ref there and `type=sha` would use github.sha.
+      - id: sha
+        run: echo "short=$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
       - id: meta
         uses: docker/metadata-action@v6
         with:
           images: ${{ matrix.image }}
-          # `context: git` takes sha/ref from the checkout above, so type=sha is the tested commit, not github.sha.
-          context: git
           tags: |
-            type=sha,prefix=sha-,format=short
+            type=raw,value=sha-${{ steps.sha.outputs.short }}
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
       - uses: docker/build-push-action@v7
         with:
