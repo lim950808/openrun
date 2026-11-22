@@ -63,6 +63,14 @@ jobs:
         if: always()
         run: docker compose -f infra/compose/compose.yaml --profile core down -v
 
+  # load/ python helpers (openAt rule of the weekly open run, report generators): stdlib only, no services.
+  python-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -m unittest discover -s load -p 'test_*.py' -t .
+      - run: python3 -m py_compile load/weekly_open_at.py load/report/*.py
+
   # ADR-0008 §1: the web app is not part of the Gradle build.
   web:
     runs-on: ubuntu-latest

@@ -2,8 +2,10 @@ name: weekly-openrun
 
 # Weekly open run inside one runner, then the report commit (ADR-0008 §2·§3, docs/requirements.md §2, M4-4·M4-5).
 # Cron 10:40 UTC Saturday = 19:40 KST: boot compose + API, create today's 20:00 KST showtime, bots from 19:50
-# (entry lead 10 min), integrity 15 min after k6 ends, report ~20:35. Scheduled runs may start late; when setup
-# passes 20:00 the script opens at now + 60 s and records open_at_adjusted.
+# (entry lead 10 min), integrity 15 min after k6 ends, report ~20:35. Scheduled runs start late, by hours on
+# 11-14 and 11-21 (02:45 KST Sunday): the report date and the bench window follow the slot Saturday (Resolve report
+# date), and when 20:00 KST is past or more than MAX_WAIT_S (30 min) away the script opens at now + 60 s and records
+# open_at_adjusted with its reason.
 on:
   schedule:
     - cron: "40 10 * * 6"
@@ -100,24 +102,39 @@ jobs:
             echo "kernel=$(uname -r)"
           } > load/results/runner-spec.txt
           cat load/results/runner-spec.txt
+      - name: Resolve report date
+        # The slot is the Saturday (KST) on or before the run start, not "today": a late scheduled run may begin after
+        # midnight KST (11-21 started 02:45 KST Sunday) or after 00:00 UTC. The bench window is that Saturday..Sunday
+        # in UTC dates: bench-m1/m2 cron at 01:00/01:30 UTC Saturday and drift a few hours too.
+        run: |
+          python3 - >> "$GITHUB_ENV" <<'PY'
+          import datetime
+          kst = datetime.timezone(datetime.timedelta(hours=9))
+          d = datetime.datetime.now(kst).date()
+          d -= datetime.timedelta(days=(d.weekday() - 5) % 7)
+          print(f"REPORT_DATE={d}")
+          print(f"BENCH_FROM={d}")
+          print(f"BENCH_TO={d + datetime.timedelta(days=1)}")
+          PY
+          grep -E '^(REPORT_DATE|BENCH_FROM|BENCH_TO)=' "$GITHUB_ENV"
       - name: Weekly open run
         run: load/weekly-openrun.sh
       # The report goes out even when the open run failed (ADR-0008 §3: n/a plus the reason, never no report).
-      - name: Download today's bench artifacts
-        # Same-day successful bench-m1 / bench-m2 runs (UTC date; both run Saturday morning KST = Saturday UTC).
+      - name: Download the slot's bench artifacts
+        # Successful bench-m1 / bench-m2 runs created in the slot window BENCH_FROM..BENCH_TO (UTC dates, inclusive).
         if: ${{ !cancelled() }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          today="$(date -u +%F)"
+          window="$BENCH_FROM..$BENCH_TO"
           : > load/results/bench-note.txt
           for pair in bench-m1.yml:bench-m1-results:bench-m1 bench-m2.yml:bench-m2-results:bench-m2; do
             IFS=: read -r workflow artifact dir <<< "$pair"
-            id="$(gh run list --workflow "$workflow" --status success --created "$today" --limit 1 \
+            id="$(gh run list --workflow "$workflow" --status success --created "$window" --limit 1 \
               --json databaseId --jq '.[0].databaseId' || true)"
             if [[ -z "$id" || "$id" == "null" ]]; then
-              echo "$dir: $today(UTC)에 성공한 $workflow 실행 없음" >> load/results/bench-note.txt
+              echo "$dir: $window(UTC)에 성공한 $workflow 실행 없음" >> load/results/bench-note.txt
               continue
             fi
             if ! gh run download "$id" --name "$artifact" --dir "load/results/$dir"; then
@@ -127,11 +144,11 @@ jobs:
           cat load/results/bench-note.txt
       - name: Report
         if: ${{ !cancelled() }}
+        # REPORT_DATE is the slot Saturday from "Resolve report date".
         run: |
-          echo "REPORT_DATE=$(TZ=Asia/Seoul date +%F)" >> "$GITHUB_ENV"
           note="$(tr '\n' ' ' < load/results/bench-note.txt 2> /dev/null || echo 'bench 아티팩트 단계 실패')"
           python3 load/report/weekly_report.py \
-            --date "$(TZ=Asia/Seoul date +%F)" \
+            --date "$REPORT_DATE" \
             --weekly load/results \
             --bench-m1 load/results/bench-m1 \
             --bench-m2 load/results/bench-m2 \

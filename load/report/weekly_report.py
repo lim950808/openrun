@@ -179,7 +179,11 @@ def main():
     if not meta:
         notes.append(f"> 주간 오픈런 결과 없음: {args.weekly}에 weekly-run-*.json이 없다")
     elif meta.get("open_at_adjusted"):
-        notes.append(f"> 오픈 시각 조정: 준비가 예정 시각을 넘겨 openAt = {kst(meta.get('open_at'))}")
+        # open_at_adjusted_reason (load/weekly_open_at.py): past = 준비가 20:00을 넘김, too_far = 실행이 늦어 KST 날짜가
+        # 넘어가 다음 날 20:00이 잡힘 (2026-11-21 러너 지연); 옛 meta에는 없다.
+        why = ("실행이 늦어 예정 시각이 MAX_WAIT_S 밖이라" if meta.get("open_at_adjusted_reason") == "too_far"
+               else "준비가 예정 시각을 넘겨")
+        notes.append(f"> 오픈 시각 조정: {why} openAt = {kst(meta.get('open_at'))}")
 
     out = {"run_date": args.date}
 
@@ -205,6 +209,7 @@ def main():
         "showtime_id": meta.get("showtime_id"),
         "open_at": meta.get("open_at"),
         "open_at_adjusted": meta.get("open_at_adjusted"),
+        "open_at_adjusted_reason": meta.get("open_at_adjusted_reason"),
         "entry_opens_at": meta.get("entry_opens_at"),
         "k6_started_at": meta.get("k6_started_at"),
         "k6_finished_at": meta.get("k6_finished_at"),

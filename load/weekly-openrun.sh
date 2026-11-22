@@ -13,9 +13,12 @@
 #
 #   usage: load/weekly-openrun.sh
 #   env:   BASE_URL (default http://localhost:8080)
-#          OPEN_AT (ISO-8601; default today 20:00 Asia/Seoul). If it is past or less than MIN_LEAD_S (default 60)
-#            ahead, openAt = now + MIN_LEAD_S and the meta records open_at_adjusted: true
+#          OPEN_AT (ISO-8601 with offset; default 20:00 Asia/Seoul on the KST date of now). If it is past, closer than
+#            MIN_LEAD_S, or more than MAX_WAIT_S ahead, openAt = now + MIN_LEAD_S and the meta records
+#            open_at_adjusted: true with open_at_adjusted_reason: past | too_far (rule: load/weekly_open_at.py)
 #          OPEN_DELAY_S (overrides OPEN_AT with now + delay; local and workflow_dispatch test runs)
+#          MIN_LEAD_S (default 60), MAX_WAIT_S (default 1800: the 19:40 KST cron is 20 min before 20:00; a run that
+#            GitHub starts after midnight KST must not wait ~17 h for the next day's 20:00, as on 2026-11-21)
 #          ENTRY_LEAD_S (default 600; must match the API's openrun.queue.entry-lead, default PT10M)
 #          DURATION_S (default 1200), MEMBERS (default: yaml virtual_users), ADMISSIONS_PER_SECOND (default 100)
 #          SETTLE_S (default 900: hold TTL 12 min + UNKNOWN release margin)
@@ -32,6 +35,7 @@ BASE_URL="${BASE_URL:-http://localhost:8080}"
 OPEN_AT="${OPEN_AT:-}"
 OPEN_DELAY_S="${OPEN_DELAY_S:-}"
 MIN_LEAD_S="${MIN_LEAD_S:-60}"
+MAX_WAIT_S="${MAX_WAIT_S:-1800}"
 ENTRY_LEAD_S="${ENTRY_LEAD_S:-600}"
 DURATION_S="${DURATION_S:-1200}"
 MEMBERS="${MEMBERS:-}"
@@ -66,27 +70,10 @@ now_iso() {
   python3 -c 'import datetime; print(datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="milliseconds"))'
 }
 
-# 1. openAt: OPEN_DELAY_S > OPEN_AT > today 20:00 KST; never closer than MIN_LEAD_S. Prints "<openAt> <adjusted>".
-read -r OPEN_AT_ISO OPEN_AT_ADJUSTED < <(python3 - "$OPEN_AT" "$OPEN_DELAY_S" "$MIN_LEAD_S" <<'PY'
-import datetime, sys
-open_at, delay, min_lead = sys.argv[1], sys.argv[2], int(sys.argv[3])
-utc = datetime.timezone.utc
-now = datetime.datetime.now(utc)
-if delay:
-    at = now + datetime.timedelta(seconds=int(delay))
-elif open_at:
-    at = datetime.datetime.fromisoformat(open_at.replace("Z", "+00:00"))
-    if at.tzinfo is None:
-        sys.exit(f"OPEN_AT needs an offset: {open_at}")
-else:
-    kst = datetime.timezone(datetime.timedelta(hours=9))  # Asia/Seoul has no DST
-    at = now.astimezone(kst).replace(hour=20, minute=0, second=0, microsecond=0)
-adjusted = at < now + datetime.timedelta(seconds=min_lead)
-if adjusted:
-    at = now + datetime.timedelta(seconds=min_lead)
-print(at.astimezone(utc).isoformat(timespec="milliseconds"), "true" if adjusted else "false")
-PY
-)
+# 1. openAt: OPEN_DELAY_S > OPEN_AT > 20:00 KST today; never closer than MIN_LEAD_S nor more than MAX_WAIT_S ahead
+#    (load/weekly_open_at.py). Prints "<openAt> <adjusted> <reason: past | too_far | none>".
+read -r OPEN_AT_ISO OPEN_AT_ADJUSTED OPEN_AT_ADJUSTED_REASON \
+  < <(python3 load/weekly_open_at.py "$OPEN_AT" "$OPEN_DELAY_S" "$MIN_LEAD_S" "$MAX_WAIT_S" --reason)
 if [[ -z "${OPEN_AT_ISO:-}" ]]; then echo "could not compute openAt" >&2; exit 1; fi
 
 # 2. Create the showtime (startsAt = openAt + 7 days). The response keeps the seat ids for the k6 setup.
@@ -109,7 +96,7 @@ ENTRY_OPENS_AT="$(python3 -c '
 import datetime, sys
 at = datetime.datetime.fromisoformat(sys.argv[1]) - datetime.timedelta(seconds=int(sys.argv[2]))
 print(at.isoformat(timespec="milliseconds"))' "$OPEN_AT_ISO" "$ENTRY_LEAD_S")"
-echo "=== showtime $SHOWTIME_ID: openAt $OPEN_AT_ISO (adjusted: $OPEN_AT_ADJUSTED), entry opens $ENTRY_OPENS_AT"
+echo "=== showtime $SHOWTIME_ID: openAt $OPEN_AT_ISO (adjusted: $OPEN_AT_ADJUSTED, reason: $OPEN_AT_ADJUSTED_REASON), entry opens $ENTRY_OPENS_AT"
 
 # 3. Wait until entry opens (already open when OPEN_DELAY_S < ENTRY_LEAD_S).
 while :; do
@@ -180,6 +167,7 @@ meta = {
     "showtime_id": int("$SHOWTIME_ID"),
     "open_at": "$OPEN_AT_ISO",
     "open_at_adjusted": "$OPEN_AT_ADJUSTED" == "true",
+    "open_at_adjusted_reason": None if "$OPEN_AT_ADJUSTED_REASON" == "none" else "$OPEN_AT_ADJUSTED_REASON",
     "entry_opens_at": "$ENTRY_OPENS_AT",
     "k6_started_at": "$K6_STARTED_AT",
     "k6_finished_at": "$K6_FINISHED_AT",
