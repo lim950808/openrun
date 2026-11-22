@@ -4,7 +4,7 @@
 
 | 날짜 | # | 한 줄 요약 |
 |---|---|---|
-| (첫 자동 발행 예정 2026-11-21 토) | | |
+| (2026-11-21 토 첫 예약 실행은 GitHub 지연으로 실패 — [`runs/2026-11-21-weekly-openrun.md`](runs/2026-11-21-weekly-openrun.md). 수정 뒤 재실행으로 발행) | | |
 
 - 양식: [`_template.md`](_template.md) · 지표 정의: [`../metrics.md`](../metrics.md)
 - 러너 실행 기록(벤치 1·2차 등): [`runs/`](runs/)

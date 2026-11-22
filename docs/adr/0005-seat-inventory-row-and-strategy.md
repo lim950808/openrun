@@ -1,6 +1,6 @@
 # ADR-0005 좌석 재고 행 모델과 락 전략 선택 기준
 
-- 상태: 제안 (기본 전략은 2026-11-28 리포트 #1의 고정 환경 수치로 확정한다)
+- 상태: 확정 (2026-11-22, 기본 전략 `CONDITIONAL_UPDATE`. 2026-11-11 제안, §8에서 2026-11-21 러너 두 잡 결과로 확정)
 - 날짜: 2026-11-11
 - 관련: [ADR-0003](0003-jpa-jdbc-boundary.md), [ADR-0004](0004-state-transitions.md) §1, [요구사항](../requirements.md) M1-1~M1-4, [지표](../metrics.md) M1
 
@@ -53,7 +53,7 @@ select count(*) from (
 - **버스트 시나리오** (`bench-m1-burst.js`). 도착률 벤치는 좌석이 "막 풀린 순간"에만 경합이 생겨 오버셀 재현이 확률적이다. 같은 좌석 하나에 100 VU가 hold→즉시 release를 반복하는 버스트를 전략마다 따로 돌려 `oversell_occurred_count`(발생)로 잰다. NAIVE는 여기서 반드시 오버셀이 나야 하고, 나머지는 0이어야 한다.
 - 주간 오픈런(운영 TTL 12분)은 벤치와 별도로 1회 돌리며 정합성 지표만 비교한다.
 
-### 5. 기본 전략 선택 기준 (리포트 #1에서 확정)
+### 5. 기본 전략 선택 기준 (§8에서 적용)
 
 고정 환경 벤치마크 3회 중앙값으로 다음 순서로 판단한다.
 
@@ -83,6 +83,25 @@ select count(*) from (
 - 단계 타이머에 `id_alloc`(nextval)이 추가되고 `redis_script`는 트랜잭션 밖에서 기록된다. `total`은 두 전략 모두 메서드 진입부터 커밋 직전까지다.
 - 리포트 #1에서 볼 것: `hold_p99_ms`와 `hikari_acquire_p99_ms`가 DB 전략 수준(p99 160~190ms, 대기 30~70ms)으로 내려오고 `oversell_*`가 0인지. 내려오면 §6의 설명이 맞고, 그래도 §5-3 기준으로 DB 전략을 우선한다. 안 내려오면 §6의 (b) 풀 크기 실험으로 넘어간다.
 - 러너 3차 실행(2026-11-16, [기록](../reports/runs/2026-11-12-bench-m1.md)): 같은 잡에서 REDIS_LUA 대비 hold p99 1,100 → 520ms, Hikari 대기 p99 487 → 117ms, 대기 최대 171 → 43, 오버셀 0. §6의 설명이 맞다. 러너 편차가 커서(같은 REDIS_LUA가 2차 506ms, 3차 1,100ms) DB 전략과의 자리는 여섯 전략을 한 잡에서 돌리는 토요일 bench-m1(리포트 #1)에서 정한다. 변형은 요청마다 커넥션을 두 번 받으므로(`id_alloc` p99 88ms) 풀 포화 시 그 왕복도 줄을 선다.
+- 여섯 전략을 한 잡에서 돌린 결과와 "남길지 지울지"의 답은 §8.
+
+### 8. 기본 전략 확정 (2026-11-21 러너, 여섯 전략 × 3회, 두 잡)
+
+같은 커밋(976dd22)으로 bench-m1이 같은 날 두 번 돌았다([기록](../reports/runs/2026-11-21-bench-m1.md)). 수동 실행(run 44866127181, 04:26 UTC)은 커널 `7.0.0-1016-aws` 러너에, 예약 실행(run 44882342061, 예약 01:00보다 6시간 53분 늦은 07:53 UTC)은 커널 `7.0.0-1020-azure` 러너에 배정됐다.
+
+**러너 플릿 편차.** `ubuntu-latest`는 AWS와 Azure 두 플릿 중 어디에 떨어질지 정해져 있지 않고, 같은 코드가 두 잡에서 전혀 다른 절대값을 냈다. aws 잡은 시도율이 계획 2,786 rps에 붙고(2,760) `dropped_iterations`가 3회 합 0.6~1.2만으로 부하 생성기가 포화하지 않았다. azure 잡은 시도율 1,735 rps, `dropped_iterations` 3회 합 37~39만(계획 33.4만/회의 38%)으로 생성기가 포화해 DB 전략 p99가 255~308ms로 전부 목표 밖이었다. 그래서 **목표(p99 200ms) 판정은 생성기가 포화하지 않은 잡에서만** 하고, 전략 순위는 두 잡 모두에서 확인한다. 리포트 머리말의 커널 접미(`aws`·`azure`)가 플릿 표시다. 로드맵 "부하 테스트 환경 규칙"에 이 규칙을 추가했다.
+
+**§5 적용(aws 잡, 3회 중앙값).**
+
+1. 탈락: `NAIVE`(오버셀 잔존 36, 버스트 겹침 29,992쌍). 나머지 다섯은 도착률·버스트 모두 0.
+2. p99 200ms 이하: `SKIP_LOCKED` 98.8 · `CONDITIONAL_UPDATE` 116.3 · `FOR_UPDATE` 125.6 · `REDIS_LUA_OUTSIDE_TX` 45.8. `REDIS_LUA` 479.7은 탈락. 이 중 성공 처리량(`hold_throughput_rps`)은 `FOR_UPDATE` 104.5 = `CONDITIONAL_UPDATE` 104.5 > `SKIP_LOCKED` 103.4 > `REDIS_LUA_OUTSIDE_TX` 99.3.
+3. 동률 → DB만 쓰는 쪽 우선: **`CONDITIONAL_UPDATE`를 기본 전략으로 확정한다.** 이미 `openrun.hold.strategy`의 기본값이라 코드는 바뀌지 않는다. azure 잡에서도 성공 처리량 1위는 `CONDITIONAL_UPDATE`(92.3)로 순위가 같다.
+
+성공 처리량은 전략 차이가 아니라 재고 순환(1,500석 / TTL 10초)이 상한이어서 다섯 전략이 99~105/s에 몰린다. §5-2는 사실상 p99 문턱으로만 작동하고 §5-3이 결정한다. 기준은 그대로 두되, 이 벤치 설계에서 처리량 열은 "전략이 재고 순환을 막지 않는다"는 확인 이상의 변별력이 없다고 적어 둔다.
+
+**`REDIS_LUA_OUTSIDE_TX`의 자리.** aws 잡에서 p99 45.8ms로 여섯 전략 중 가장 낮고(DB 전략의 절반), Hikari 대기 최대 0, `dropped_iterations` 147, 시도율이 계획과 일치했다. §6의 설명("병목은 DB 트랜잭션 안의 Redis 왕복")이 끝까지 맞았다. 비용은 성공 처리량 −5%(99.3 대 104.5)인데, 추정 원인은 Redis 키가 janitor(1초)가 지우기 전까지 좌석을 "찬" 상태로 두는 반면 DB 전략은 lazy expiry로 만료 즉시 비어 있다고 보기 때문이다(`REDIS_LUA` 102.9도 같은 방향; 벤치 TTL 10초에서 1초가 10%라 과장되고, 운영 TTL 12분에서는 무시할 크기. 검증하지 않은 추정). azure 잡에서는 484ms 대 `REDIS_LUA` 1,022ms로 3차 실행과 같은 그림이다.
+
+판정: **남긴다. 기본 전략 후보는 아니다.** 지연이 가장 낮은 전략이라 `REDIS_LUA`와 나란히 두면 "DB 트랜잭션 안에서 외부 왕복을 하면 커넥션 풀이 먼저 병목이 된다"는 교훈이 매주 표에 그대로 보인다. 기본으로 삼지 않는 이유는 §5-3 그대로다: 좌석 진실의 원천이 둘로 갈리고 요청마다 커넥션을 두 번 받는다. 지우면 `SeatClaimStrategy`의 사전 단계와 `id_alloc` 타이머를 걷어내는 핫패스 리팩터링인데 얻는 것이 없다. 문서에서 "실험 변형" 대신 "비교 전략"으로 부른다.
 
 ## 대안과 기각 이유
 
@@ -97,11 +116,12 @@ select count(*) from (
 
 - 좋아지는 것: 전략 교체가 `SeatClaimStrategy` 구현 하나를 바꾸는 일이 된다. 오버셀 검증 쿼리 하나로 다섯 전략을 같은 잣대로 잰다.
 - 감수하는 것: 회차 생성 시 1,500행 INSERT. 만료된 hold 행이 janitor 전까지 남아 `GET seats`의 파생 상태 계산이 `expires_at`를 봐야 한다.
-- 다시 검토할 조건: 1.5차 대기자 승계에서 "비어 있음" 정의에 승계 우선권이 들어오면 3절 표를 다시 쓴다.
+- 다시 검토할 조건: 1.5차 대기자 승계에서 "비어 있음" 정의에 승계 우선권이 들어오면 3절 표를 다시 쓴다. 1.5차에서 Redis가 좌석 진실에 어차피 끼게 되면(레이트리밋·승계) `REDIS_LUA_OUTSIDE_TX`를 기본 전략 후보로 다시 평가한다. 벤치 TTL을 바꾸면 §8의 처리량 상한 해석을 다시 쓴다.
 
 ## 증명
 
 - `HoldConcurrencyTest`: 전략 5종 + 변형 `REDIS_LUA_OUTSIDE_TX` × 64스레드 동시 요청. NAIVE만 `oversell_count ≥ 1`, 나머지 0 (M1-3)
 - `HoldExpiryTest`: `REDIS_LUA_OUTSIDE_TX`가 `SEAT_TAKEN`·`ACTIVE_RESERVATION_EXISTS`로 끝나면 Redis 키가 남지 않음 (§7)
 - `HoldExpiryTest`: lazy expiry와 janitor sweep (M1-2)
-- 리포트 #1 전략 비교 표: `load/report/m1_report.py` 출력 (`.github/workflows/bench-m1.yml`, 토 10:00 KST)
+- 리포트 #1 전략 비교 표: `load/report/m1_report.py` 출력 (`.github/workflows/bench-m1.yml`, 토 10:00 KST 예약)
+- 2026-11-21 bench-m1 두 잡(aws·azure 플릿)에서 §5 순위가 같고 `CONDITIONAL_UPDATE`가 1위 (§8, [기록](../reports/runs/2026-11-21-bench-m1.md))

@@ -25,7 +25,7 @@
 | `hold_conflict_rate` | 좌석 충돌로 거부된 비율. 오류 코드 `SEAT_TAKEN`만 센다(활성 예약 중복 `ACTIVE_RESERVATION_EXISTS`, `ILLEGAL_TRANSITION`은 제외) | `SEAT_TAKEN` 응답 / 전체 hold 요청 | k6 | 보고만 |
 | `expire_lag_s` | `expires_at`부터 janitor가 예약을 EXPIRED로 쓴 시각까지 지연 p99 (좌석은 파생 상태라 `expires_at`에 즉시 AVAILABLE이 되지만, 이벤트와 Redis 키 정리는 janitor가 한다). 실행 종료 시점의 잔여는 `expire_backlog_max_s` | 없음 | app (janitor 로그, integrity) | 60 이하 |
 | `illegal_transition_count` | 허용되지 않은 상태 전이 요청으로 409를 반환한 수 | 없음 | app | 보고만 (봇 시나리오 주입량과 비교) |
-| `strategy` | 이번 실행의 락 전략 (`NAIVE`·`FOR_UPDATE`·`SKIP_LOCKED`·`CONDITIONAL_UPDATE`·`REDIS_LUA`, 실험 변형 `REDIS_LUA_OUTSIDE_TX`는 ADR-0005 §7) | 차원 | 시나리오 | 리포트 표의 행 |
+| `strategy` | 이번 실행의 락 전략 (`NAIVE`·`FOR_UPDATE`·`SKIP_LOCKED`·`CONDITIONAL_UPDATE`·`REDIS_LUA`, 비교 전략 `REDIS_LUA_OUTSIDE_TX`는 ADR-0005 §7·§8) | 차원 | 시나리오 | 리포트 표의 행 |
 
 ## M2 대기열
 

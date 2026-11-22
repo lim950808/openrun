@@ -32,7 +32,7 @@
 | 해제 | `release` | 좌석이 `AVAILABLE`로 돌아가는 것. 좌석 상태는 파생이므로 예약이 EXPIRED·CANCELLED가 되면 자동으로 해제된다. 결제 실패는 hold를 유지하므로 해제가 아니다 |
 | 활성 예약 | `active reservation` | 상태가 HOLDING 또는 PAYING인 예약. 1인 1건 제한의 기준. 오버셀 판정은 여기에 CONFIRMED를 더한 집합으로 한다 |
 | 재고 | `Inventory` | 선점 가능한 자원의 추상화. 1차 구현체는 지정석(`SeatInventory`) |
-| 락 전략 | `LockStrategy` | M1 비교 대상: `NAIVE` · `FOR_UPDATE` · `SKIP_LOCKED` · `CONDITIONAL_UPDATE` · `REDIS_LUA`. 실험 변형 `REDIS_LUA_OUTSIDE_TX`(Redis 판정을 DB 트랜잭션 전에, ADR-0005 §7)는 비교용이며 기본 전략 후보가 아님. 요청 헤더 `X-Hold-Strategy`는 벤치마크 설정(`openrun.hold.allow-strategy-override`)에서만 유효 |
+| 락 전략 | `LockStrategy` | M1 비교 대상: `NAIVE` · `FOR_UPDATE` · `SKIP_LOCKED` · `CONDITIONAL_UPDATE` · `REDIS_LUA`. 기본 전략은 `CONDITIONAL_UPDATE`(ADR-0005 §8). 비교 전략 `REDIS_LUA_OUTSIDE_TX`(Redis 판정을 DB 트랜잭션 전에, ADR-0005 §7)는 지연이 가장 낮지만 기본 전략 후보가 아님. 요청 헤더 `X-Hold-Strategy`는 벤치마크 설정(`openrun.hold.allow-strategy-override`)에서만 유효 |
 | 재고 정합성 점검 | `integrity` | `GET /api/admin/showtimes/{id}/integrity`. `oversell_count` 등 실행 종료 후 검증 지표 |
 | 오버셀 | `oversell` | 같은 회차·좌석에 활성 예약이 2건 이상인 상태 |
 
