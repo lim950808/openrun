@@ -89,5 +89,5 @@ M1~M3로 API는 대기열 → 좌석 선점 → 결제까지 이어진다. 그�
 ## 증명
 
 - Playwright `web-e2e`: 회차 생성 → 대기열 → 입장 → 2석 hold → Fake PG → CONFIRMED 화면까지 한 번에 통과(M4-1~M4-3)
-- `weekly-openrun.yml` 첫 토요일 실행: `docs/reports/YYYY-MM-DD.md` 커밋이 `main`에 생기고 머리말 차원 8개가 채워져 있다(M4-4 · M4-5). 2026-11-21 첫 예약 실행은 지연으로 실패([기록](../reports/runs/2026-11-21-weekly-openrun.md)); 수정 뒤 재실행 결과는 그 기록에 적는다
+- `weekly-openrun.yml` 첫 토요일 실행: `docs/reports/YYYY-MM-DD.md` 커밋이 `main`에 생기고 머리말 차원 8개가 채워져 있다(M4-4 · M4-5). 2026-11-21 첫 예약 실행은 지연으로 실패했고, 수정(743d400) 뒤 11-22 수동 재실행이 리포트 #1 `docs/reports/2026-11-21.md`를 토요일 슬롯 날짜로 커밋했다(aebd025, [기록](../reports/runs/2026-11-21-weekly-openrun.md))
 - Vitest: 좌석맵 배치가 1,500석을 등급·행·번호로 빠짐없이 배치, 예약·결제 상태 조합 → 화면 상태 매핑 표

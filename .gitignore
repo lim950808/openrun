@@ -30,3 +30,6 @@ apps/web/*.tsbuildinfo
 
 # agent worktrees
 .claude/worktrees/
+
+# python bytecode (load/ helpers and tests)
+__pycache__/
