@@ -41,6 +41,7 @@
 | `rank_api_server_p99_ms` | 같은 요청의 서버 처리 시간 p99. Spring Boot의 `http.server.requests{uri=/api/showtimes/{showtimeId}/queue/me, status=200}` 타이머, 서블릿 필터 진입부터 응답 쓰기까지. `rank_api_p99_ms`와의 차이가 러너 포화(k6·API가 CPU를 나눠 쓰는 몫)와 네트워크다 | 없음 | app (`GET /api/admin/diagnostics/http-requests?uri=`) | 100 이하. k6 값이 100을 넘을 때 서버 몫인지 러너 몫인지 가른다 |
 | `rank_drift_count` | 새로고침 폭풍 시나리오에서 같은 회원의 순번이 직전 응답보다 커진 횟수 (줄어드는 것은 정상) | 없음 | k6 커스텀 | 0 |
 | `unauthorized_seat_calls` | 입장 토큰 없이 또는 만료 토큰으로 좌석 API를 호출해 401을 받은 수. `openrun.api.errors{code=ACCESS_TOKEN_*}` 합 | 없음 | app | 보고만 (매크로 행동 지표) |
+| `rate_limited_count` | 레이트리밋(ADR-0010)이 429로 거절한 요청 수. `openrun.api.errors{code=RATE_LIMITED_IP}` + `{code=RATE_LIMITED_CALLER}`, 정책별로 나눠 적는다. 러너·CI는 꺼져 있어 0 | 없음 | app | 보고만 (데모 서버만 켜짐, 리포트 수치 아님) |
 
 ## M3 결제
 
@@ -66,7 +67,7 @@
 |---|---|---|---|
 | `cancel_fee_accuracy` | 정책 테이블로 계산한 수수료와 실제 환불액이 일치한 비율 | 일치 / 취소 건수 |app |
 | `succession_fill_rate` | 취소로 풀린 좌석 중 대기자 승계로 다시 hold된 비율 | 승계 hold / 취소 좌석 | app |
-| `bot_block_rate` | 매크로 시나리오 요청 중 차단된 비율 | 차단 / 매크로 요청 | app |
+| `bot_block_rate` | 매크로 시나리오 요청 중 차단된 비율. 분자는 ADR-0010의 `RATE_LIMITED_CALLER`, 분모(매크로 요청 수)는 k6만 알므로 k6 봇에 429 백오프를 넣을 때 측정 지점을 k6로 바꾼다 | 차단 / 매크로 요청 | app, k6 |
 | `human_vs_bot_success_ratio` | 사람 확정률 ÷ 봇 확정률. `human` 라벨 필요 | 사람 `hold_to_confirm_rate` / 봇 `hold_to_confirm_rate` | app, mart |
 
 ## 2차 측정 파이프라인

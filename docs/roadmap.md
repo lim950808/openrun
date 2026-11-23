@@ -27,7 +27,7 @@
 | 4~5 | 11/30~12/13 | **M2 최소 대기열** | ZSET 순번, 입장 토큰(JWT), 입장 속도 제어(Bucket4j), 폴링 API, ShedLock 스케줄러. 봇 시나리오에 "새로고침 폭풍" 추가 | 대기열 이탈률, FIFO 위반률, 입장 지연 |
 | 6~7 | 12/14~12/27 | **M3 결제 핵심** | 토스 결제위젯 + confirm, 서버 금액 검증, `Idempotency-Key`, hold TTL ↔ 10분 승인창 정합, 웹훅 inbox(서명·중복·순서 역행 폐기), 예약·결제 상태머신 분리(sealed class), Fake PG 타임아웃 주입 | hold→confirm 전환율, 승인·만료 레이스 0건, 웹훅 지연 |
 | 8 | 12/28~01/03 | **최소 화면 + 자동화, 1차 완료** | Next.js 3페이지(대기열·좌석맵·결제결과), 주간 오픈런 cron, 리포트 자동 발행, README 정리 | 리포트 자동 발행 |
-| 9~12 | 01/04~01/31 | **1.5차 제품 완성도** | 취소수수료 정책 + 부분취소, 대기자 승계(hold 체인), janitor 확장(보상 실패 재시도 큐·다중 인스턴스·승계 트리거), 레이트리밋 + Turnstile/ALTCHA, 1인당 동시 hold 상한, 디자인 토큰 정리, 사람 참여 "오픈런 데이" | 취소 처리 정확도, 봇 차단률, 사람 vs 봇 성공률 |
+| 9~12 | 01/04~01/31 | **1.5차 제품 완성도** | 취소수수료 정책 + 부분취소, 대기자 승계(hold 체인), janitor 확장(보상 실패 재시도 큐·다중 인스턴스·승계 트리거), 레이트리밋(앱 토큰 버킷은 2026-11-23 ADR-0010으로 앞당김, 기본 꺼짐) + Turnstile/ALTCHA, 1인당 동시 hold 상한, 디자인 토큰 정리, 사람 참여 "오픈런 데이" | 취소 처리 정확도, 봇 차단률, 사람 vs 봇 성공률 |
 | 13~16 | 02/01~02/28 | **2차 측정 파이프라인** | Outbox → Debezium(Outbox SMT + OpenLineage) → Kafka → DuckDB·dbt 마트(퍼널·매출 손실·이탈), 봇 파라미터 복원 검증, Marquez 리니지, Evidence 리포트, GitHub Actions cron으로 dbt 실행 | 마트 복원 오차, 퍼널 단계별 전환율 |
 | 17~20 | 03/01~03/28 | **3차 AI 브리핑과 평가** | Spring AI 2.0 리포트 브리핑 에이전트(마트 지표만 인용), JUnit 평가셋(pass^3), Langfuse 트레이싱, 운영 실패 케이스 환류 | 에이전트 정답률, 환각 0건 여부 |
 
@@ -90,6 +90,7 @@ Spring AI 2.0이 Spring Boot 4를 전제하므로 Boot 4로 시작한다. 단 1�
 - [ADR-0003 JPA와 JDBC 혼용 경계](adr/0003-jpa-jdbc-boundary.md)
 - [ADR-0004 좌석·예약·결제 상태 전이 규칙](adr/0004-state-transitions.md)
 - [ADR-0005 좌석 재고 행 모델과 락 전략 선택 기준](adr/0005-seat-inventory-row-and-strategy.md) (2026-11-22 확정, 기본 `CONDITIONAL_UPDATE`)
+- [ADR-0010 공개 API 레이트리밋](adr/0010-public-api-rate-limit.md) (2026-11-23, 기본 꺼짐·데모 서버만 켬)
 
 ## 요구사항·용어·지표
 

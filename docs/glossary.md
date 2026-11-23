@@ -51,6 +51,7 @@
 | 순번 API 서버 시간 | `rank_api_server_p99_ms`, `http.server.requests` | `GET /queue/me`를 서버가 처리한 시간. k6가 잰 `rank_api_p99_ms`에서 러너 포화·네트워크를 뺀 몫 |
 | 입장 기록 키 | `admitted:{showtimeId}:{memberId}` | 발급된 입장 토큰을 토큰 TTL만큼 보관하는 Redis 키. 폴링이 입장 여부를 여기서 본다 |
 | 입장 속도 | `admission_rate` | 초당 입장 인원. Bucket4j로 제어 |
+| 레이트리밋 | `RateLimitInterceptor`, `openrun.ratelimit.*`, 429 `RATE_LIMITED_IP`·`RATE_LIMITED_CALLER` | 공개 API의 요청 한도(ADR-0010). 정책 `ip`는 IP당 홍수 방지, 정책 `caller`는 대기 토큰당 폴링 한도(매크로 방어). 기본 꺼짐, 데모 서버만 켠다. 입장 속도와 다른 것 |
 | 입장 토큰 | `access token` | 좌석 API 호출 권한. JWT, 10분 |
 | 이탈 | `abandon` | 입장 전에 폴링을 멈추는 것. 판정은 마지막 폴링(또는 진입) 후 30초 무요청, 입장 스케줄러가 꺼낼 때 판정한다 |
 | 폴링 기록 | `queue:{showtimeId}:polled` | 회원별 마지막 폴링 시각을 담는 Redis HASH. 폴링은 DB를 쓰지 않고 이 해시만 갱신한다 |

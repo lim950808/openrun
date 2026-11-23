@@ -38,6 +38,7 @@ openssl rand -hex 32   # OPENRUN_ADMIN_TOKEN (다른 값)
 | `DEMO_SITE_ADDRESS` | 도메인(예 `openrun.example.com`). Caddy가 Let's Encrypt로 자동 HTTPS. 도메인 없이는 `:80` |
 | `OPENRUN_DEMO_SHOWTIME_EVERY` | `PT15M`(15분마다 회차 생성, ADR-0009 §4) |
 | `OPENRUN_PAYMENT_PG` | 토스 키를 넣기 전까지 `fake`. 토스 연동 시 `toss` + `OPENRUN_TOSS_*` 세 값 |
+| `OPENRUN_RATELIMIT_ENABLED` | `true`(데모 서버는 켠다, ADR-0010). IP당 50/s·버스트 100, 대기열 폴링 토큰당 1/s·버스트 3. 로컬·러너 기본값은 `false` |
 | `OPENRUN_IMAGE_TAG` | `latest`. 되돌릴 때만 `sha-xxxxxxx` |
 
 토스 콘솔의 웹훅 주소는 `https://<도메인>/api/webhooks/toss`(ADR-0007 §6). Fake PG 웹훅은 compose 내부 주소를 그대로 쓴다.
@@ -61,6 +62,7 @@ curl -s -o /dev/null -w '%{http_code}\n' https://<도메인>/actuator/health    
 curl -s -o /dev/null -w '%{http_code}\n' -X POST https://<도메인>/api/admin/showtimes \
   -H 'Content-Type: application/json' -d '{}'                                    # 401 (토큰 없음)
 oc exec api curl -fsS localhost:8080/actuator/health                             # {"status":"UP"} 서버 안에서만
+for i in $(seq 101); do curl -s -o /dev/null -w '%{http_code}\n' https://<도메인>/api/showtimes; done | sort | uniq -c   # 200 100개 + 429 1개 (레이트리밋 켜짐, ADR-0010)
 ```
 
 `OPENRUN_DEMO_SHOWTIME_EVERY=PT15M`이면 1~2분 안에 `/api/showtimes`에 다음 15분 경계에 열리는 회차가 보인다. 그 전에 손으로 만들 때:
@@ -118,7 +120,7 @@ Caddy 인증서는 볼륨 `caddy-data`에 있다. `oc down -v`는 postgres 데�
 
 - **HTTP로 띄우면 관리자 토큰이 평문으로 지나간다.** `DEMO_SITE_ADDRESS`가 도메인이 아니면 TLS가 없다. 그 상태에서는 `/api/admin/**`을 서버 안에서만 부른다(`oc exec api curl -H "X-Admin-Token: …" localhost:8080/api/admin/...`). 토큰이 노출됐다고 보이면 `.env`의 값을 바꾸고 `oc up -d`로 api만 다시 띄운다.
 - **데모 서버의 부하 수치는 리포트에 쓰지 않는다**(CLAUDE.md 규칙 6). 주간 오픈런과 벤치는 러너에서 돈다(ADR-0008 §2). 데모 서버를 상대로 `load/*.sh`를 손으로 돌릴 때는 `BASE_URL`과 `OPENRUN_ADMIN_TOKEN`을 함께 넘기고 결과는 참고용으로만 본다.
-- 공개 API에 레이트리밋이 없다(1.5차). 입장 속도 제한과 1인당 활성 예약 1건만 있다. 공격을 받으면 `oc stop caddy`로 끈다.
+- 레이트리밋은 IP당 50/s와 대기열 폴링 토큰당 1/s 두 정책뿐이다(ADR-0010, `.env`에서 켠다). 같은 NAT 뒤 사람들은 IP 한도를 나눠 쓰고, API 재시작 시 한도가 초기화된다. 그래도 공격을 받으면 `oc stop caddy`로 끈다. Turnstile/ALTCHA는 1.5차.
 - 과거 회차가 15분마다 쌓인다. 홈 목록은 가장 이른 3개만 보여 주고, 데이터는 2차 리플레이 재료로 남긴다(ADR-0009 §4).
 - `/actuator/*`는 Caddy가 404로 막는다. 메트릭·헬스는 서버 안에서 `oc exec api curl localhost:8080/actuator/...`로 본다.
 - 이미지는 `linux/amd64`만 발행한다. arm64 서버를 쓰려면 ADR-0009 §1대로 arm64 러너 매트릭스를 먼저 추가한다. Apple Silicon 맥에서는 `pull`이 "no matching manifest for linux/arm64"로 실패하고 compose가 로컬 빌드로 넘어가므로(README의 `--build` 경로), 발행된 이미지를 그대로 써 보려면 `DOCKER_DEFAULT_PLATFORM=linux/amd64`로 받는다(Rosetta 에뮬레이션, 느리다).
