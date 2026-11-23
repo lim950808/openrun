@@ -10,7 +10,8 @@
 | `app_commit` | `abc1234` |
 | `scenario_file` / `scenario_hash` | `load/scenarios/weekly-default.yaml` / `blob-hash` |
 | `strategy` | `SKIP_LOCKED` |
-| `runner_spec` | GitHub Actions ubuntu-latest · 4 vCPU · 16GB · kernel x.y |
+| `runner_spec` | GitHub Actions ubuntu-latest · 4 vCPU · 16GB · kernel x.y-aws |
+| `bench_runner_spec` | bench-m1 4 vCPU · 16GB · kernel x.y-azure / bench-m2 4 vCPU · 16GB · kernel x.y-azure |
 | `runs` | 벤치마크 3회 중앙값 (최소~최대) + 주간 오픈런 1회 |
 | `source_label` | synthetic 100% |
 | 이번 주 변경 | PR #n 한 줄 요약 |
@@ -33,21 +34,23 @@
 
 | 지표 | 값 (최소~최대) | 지난주 | 목표 |
 |---|---|---|---|
-| `hold_p99_ms` | | | ≤ 200 |
+| `hold_p99_ms` | ² | | ≤ 200 |
 | `hold_throughput_rps` | | | 보고 |
 | `rank_api_p99_ms` | | | ≤ 100 |
 | `rank_api_server_p99_ms` | | | ≤ 100 |
 | `expire_lag_s` (p99) | | | ≤ 60 |
 
+- ² bench-m1 기본 전략 `dropped_ratio` x.x% (`dropped_iterations` n / 계획 m, 전략 전체 x.x~x.x%). 5%를 넘으면 생성기 포화라 `hold_p99_ms` 목표 판정 보류(요구사항 §4).
+
 ### 전략 비교 (M1 이후 유지)
 
-| `strategy` | `oversell_count` | `hold_p99_ms` | `hold_throughput_rps` |
-|---|---|---|---|
-| NAIVE | | | |
-| FOR_UPDATE | | | |
-| SKIP_LOCKED | | | |
-| CONDITIONAL_UPDATE | | | |
-| REDIS_LUA | | | |
+| `strategy` | `oversell_count` | `hold_p99_ms` | `hold_throughput_rps` | `dropped_ratio` |
+|---|---|---|---|---|
+| NAIVE | | | | |
+| FOR_UPDATE | | | | |
+| SKIP_LOCKED | | | | |
+| CONDITIONAL_UPDATE | | | | |
+| REDIS_LUA | | | | |
 
 ## 대기열 (M2 이후)
 

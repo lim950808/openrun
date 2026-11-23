@@ -23,6 +23,7 @@
 | `hold_throughput_rps` | 초당 hold 성공 응답 수. peak 구간(20:00~20:05) 평균 | 성공 응답 수 / 초 | k6 | 보고만 |
 | `hold_success_rate` | hold 요청 중 201 비율 | 201 응답 / 전체 hold 요청 | k6 | 보고만 (좌석 수로 상한 결정됨) |
 | `hold_conflict_rate` | 좌석 충돌로 거부된 비율. 오류 코드 `SEAT_TAKEN`만 센다(활성 예약 중복 `ACTIVE_RESERVATION_EXISTS`, `ILLEGAL_TRANSITION`은 제외) | `SEAT_TAKEN` 응답 / 전체 hold 요청 | k6 | 보고만 |
+| `dropped_ratio` | 부하 생성기(k6)가 계획한 도착률을 못 내 버린 반복의 비율. 전략 한 종의 도착률 실행 3회를 합쳐 계산하고, 리포트는 기본 전략 값과 전략 전체 범위를 각주에 적는다 | `dropped_iterations` 합 / (`planned_attempt_rps` × `duration_s` × 실행 수) | k6 | 5% 이하(요구사항 §4). 넘으면 그 잡은 생성기 포화라 `hold_p99_ms` 목표 판정을 보류하고 전략 비교만 유효 |
 | `expire_lag_s` | `expires_at`부터 janitor가 예약을 EXPIRED로 쓴 시각까지 지연 p99 (좌석은 파생 상태라 `expires_at`에 즉시 AVAILABLE이 되지만, 이벤트와 Redis 키 정리는 janitor가 한다). 실행 종료 시점의 잔여는 `expire_backlog_max_s` | 없음 | app (janitor 로그, integrity) | 60 이하 |
 | `illegal_transition_count` | 허용되지 않은 상태 전이 요청으로 409를 반환한 수 | 없음 | app | 보고만 (봇 시나리오 주입량과 비교) |
 | `strategy` | 이번 실행의 락 전략 (`NAIVE`·`FOR_UPDATE`·`SKIP_LOCKED`·`CONDITIONAL_UPDATE`·`REDIS_LUA`, 비교 전략 `REDIS_LUA_OUTSIDE_TX`는 ADR-0005 §7·§8) | 차원 | 시나리오 | 리포트 표의 행 |
@@ -96,7 +97,8 @@
 | `report_no`, `run_date` | #1, 2026-11-28 |
 | `scenario_file`, `scenario_hash` | `weekly-default.yaml`, git blob hash |
 | `strategy` | `SKIP_LOCKED` |
-| `runner_spec` | GitHub Actions ubuntu-latest, 4 vCPU, 16GB |
+| `runner_spec` | GitHub Actions ubuntu-latest, 4 vCPU, 16GB, kernel 7.0.0-1016-aws (주간 오픈런 러너) |
+| `bench_runner_spec` | bench-m1 · bench-m2 각각의 vCPU·RAM·커널. 주간 오픈런 러너와 다른 플릿(aws·azure)일 수 있어 따로 적는다(ADR-0005 §8) |
 | `app_commit` | 짧은 SHA |
 | `source_label` | synthetic 100% |
 | `runs` | 벤치마크 3회 중앙값 + 주간 오픈런 1회 |

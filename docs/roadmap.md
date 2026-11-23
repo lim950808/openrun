@@ -66,7 +66,7 @@ Spring AI 2.0이 Spring Boot 4를 전제하므로 Boot 4로 시작한다. 단 1�
 
 - 실행 환경: GitHub Actions `ubuntu-latest` 러너(공개 레포 사양 고정) 또는 고정 사양 VM. 리포트 머리말에 vCPU·RAM·커널을 적는다.
 - 벤치마크는 같은 시나리오를 3회 연속 실행(매 실행 회차 재시드), 중앙값을 보고하고 최소·최대를 함께 적는다. 주간 오픈런은 1회.
-- `ubuntu-latest`는 AWS·Azure 플릿 어디에 배정될지 통제할 수 없고 절대값이 플릿에 따라 2배 넘게 다르다(ADR-0005 §8). 전략·변형 비교는 같은 잡 안에서만 하고, 목표값(p99 등) 판정은 k6 `dropped_iterations`가 계획 대비 무시할 수 있는, 즉 부하 생성기가 포화하지 않은 잡에서만 한다. 커널 접미(`aws`·`azure`)를 머리말에 남긴다.
+- `ubuntu-latest`는 AWS·Azure 플릿 어디에 배정될지 통제할 수 없고 절대값이 플릿에 따라 2배 넘게 다르다(ADR-0005 §8). 전략·변형 비교는 같은 잡 안에서만 하고, 목표값(p99 등) 판정은 k6 `dropped_ratio`가 5% 이하(요구사항 §4)인, 즉 부하 생성기가 포화하지 않은 잡에서만 한다. 주간 리포트가 벤치 러너 커널(`bench_runner_spec`, 접미 `aws`·`azure`가 플릿)과 `dropped_ratio`를 각주로 적고 넘으면 "판정 보류"라 쓴다.
 - k6 `ramping-arrival-rate`(open model)만 사용한다. 응답이 느려져도 도착률을 유지해야 오픈 스파이크가 재현된다.
 - 봇 시나리오 파라미터는 `load/scenarios/*.yaml`로 레포에 공개한다.
 

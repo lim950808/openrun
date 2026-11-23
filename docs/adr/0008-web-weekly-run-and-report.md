@@ -57,7 +57,7 @@ M1~M3로 API는 대기열 → 좌석 선점 → 결제까지 이어진다. 그�
 
 `load/report/weekly_report.py`가 `docs/reports/_template.md`의 표를 채워 `docs/reports/YYYY-MM-DD.md`와 기계용 `docs/reports/YYYY-MM-DD.json`을 쓴다.
 
-- **입력.** 같은 날 성공한 `bench-m1` · `bench-m2` 실행의 아티팩트(`gh run download`, `actions: read`), 주간 오픈런 결과(`load/results/`), 러너 사양, `app_commit`, `scenario_hash = git hash-object load/scenarios/weekly-default.yaml`. 벤치 아티팩트가 없으면 그 표는 `n/a`로 두고 머리말에 사유를 적는다. 리포트가 안 나가는 일은 없어야 한다(로드맵 원칙 1 "기능이 덜 끝나도 리포트는 나간다").
+- **입력.** 같은 날 성공한 `bench-m1` · `bench-m2` 실행의 아티팩트(`gh run download`, `actions: read`), 주간 오픈런 결과(`load/results/`), 러너 사양, `app_commit`, `scenario_hash = git hash-object load/scenarios/weekly-default.yaml`. 벤치 아티팩트가 없으면 그 표는 `n/a`로 두고 머리말에 사유를 적는다. 리포트가 안 나가는 일은 없어야 한다(로드맵 원칙 1 "기능이 덜 끝나도 리포트는 나간다"). 벤치 아티팩트의 `runner-spec.txt`(커널 접미 = 플릿)와 bench-m1 `dropped_iterations`로 머리말 `bench_runner_spec`과 성능 표 각주 `dropped_ratio`를 채우고, 5%를 넘으면 한 줄 요약과 각주에 "판정 보류"를 적는다(2026-11-23 추가. 리포트 #1이 azure 포화 잡의 p99 300ms를 목표 미달처럼 실었던 뒤, ADR-0005 §8 · 요구사항 §4).
 - **규칙.** 성능 지표는 벤치 3회 중앙값(최소~최대), 정합성 카운트는 3회 합계와 주간 오픈런 값을 나눠 적는다(metrics.md). `report_no`는 `docs/reports/*.md`(템플릿 제외) 개수 + 1. "지난주" 열은 직전 `*.json`에서 읽는다.
 - **사람 몫.** "한 줄 요약"은 정합성 4지표가 0인지와 hold p99 · 입장 속도로 기계가 한 문장을 만들고, "이번 주 배운 것"과 "미해결"은 `> 직접 작성` 표시를 남긴다. 숫자를 지어내지 않고, 서술을 기계가 흉내 내지도 않는다.
 - **발행.** 워크플로가 `github-actions[bot]`으로 `docs(reports): 주간 오픈런 리포트 #N YYYY-MM-DD`를 `main`에 바로 커밋한다(`contents: write`). `GITHUB_TOKEN` 푸시는 다른 워크플로를 깨우지 않으므로 CI 재귀가 없다. `docs/reports/README.md`가 목록(리포트 페이지)이고 README가 링크한다. 브랜치 보호로 막히면 PR 생성으로 바꾸고 이 ADR을 고친다.

@@ -112,6 +112,7 @@
 | 리플레이 | `replay` | 한 회차의 이벤트를 시간순으로 다시 보여주는 화면 |
 | 주간 오픈런 실행 | `load/weekly-openrun.sh`, `weekly-openrun.yml` | 토요일 러너 안에서 회차 생성 → 19:50 봇 진입 → 20:00 오픈 → 검증 JSON까지 한 번에(ADR-0008 §2) |
 | 리포트 발행 | `load/report/weekly_report.py` → `docs/reports/YYYY-MM-DD.md` + `.json` | 숫자는 기계가 채우고 "배운 것·미해결"은 `> 직접 작성`. `report_no` = 기존 리포트 수 + 1 |
+| 생성기 포화 | `dropped_ratio`, k6 `dropped_iterations` | 부하 생성기가 계획한 도착률을 못 내 반복을 버린 비율. 5%를 넘은 잡은 지연 목표 판정을 보류하고 전략 비교만 쓴다(요구사항 §4). 러너 플릿(`aws`·`azure`)은 벤치 아티팩트 `runner-spec.txt`의 커널 접미로 안다 |
 
 ## 쓰지 않는 말
 

@@ -10,7 +10,7 @@ Inputs (all optional; a missing input prints n/a and, for the benches, a note un
   --bench-m2   bench-m2-results artifact: m2-storm-*, m2-weekly-*, m2-integrity-storm-*, m2-integrity-weekly-*,
                m2-ticks-weekly-*, m2-http-storm-*, m3-payment-integrity-weekly-*.json (load/report/m2_report.py)
 Rules (docs/metrics.md): performance = bench median (min~max), counts = bench sum and the weekly open run apart,
-zero denominators print n/a. Narrative sections stay `> 직접 작성`; no number here is anything but a copied input.
+zero denominators print n/a, bench-m1 `dropped_ratio` over 5% marks `hold_p99_ms` 판정 보류. Narrative sections stay `> 직접 작성`; no number here is anything but a copied input.
 
 usage: weekly_report.py --date YYYY-MM-DD [--weekly load/results] [--bench-m1 DIR] [--bench-m2 DIR]
                         [--reports docs/reports] [--runner-spec FILE] [--label TEXT] [--bench-note TEXT]
@@ -33,6 +33,7 @@ KST = datetime.timezone(datetime.timedelta(hours=9))
 WEEKDAYS = "월화수목금토일"
 DEFAULT_STRATEGY = "CONDITIONAL_UPDATE"  # apps/api application.yml openrun.hold.strategy default
 TO_WRITE = "> 직접 작성"
+DROPPED_RATIO_MAX = 0.05  # docs/requirements.md §4 부하 생성기 포화 판정
 
 
 def read_json(path):
@@ -109,17 +110,78 @@ def load_weekly(d):
     }
 
 
+def parse_runner_spec(raw):
+    """(nproc, mem GB, kernel) from runner-spec.txt (nproc=N, `free -g` Mem: line, kernel=K); None when unparsable."""
+    nproc = re.search(r"nproc=(\d+)", raw)
+    mem = re.search(r"^Mem:\s+(\d+)", raw, re.M)
+    kernel = re.search(r"kernel=(\S+)", raw)
+    if not (nproc and mem and kernel):
+        return None
+    return nproc.group(1), mem.group(1), kernel.group(1)
+
+
 def runner_text(label, path):
     if not path or not os.path.exists(path):
         return f"{label} · 사양 파일 없음"
     with open(path, encoding="utf-8") as f:
         raw = f.read()
-    nproc = re.search(r"nproc=(\d+)", raw)
-    mem = re.search(r"^Mem:\s+(\d+)", raw, re.M)
-    kernel = re.search(r"kernel=(\S+)", raw)
-    if not (nproc and mem and kernel):
+    spec = parse_runner_spec(raw)
+    if not spec:
         return f"{label} · {' '.join(raw.split())}"
-    return f"{label} · {nproc.group(1)} vCPU · {mem.group(1)}GB · kernel {kernel.group(1)}"
+    return f"{label} · {spec[0]} vCPU · {spec[1]}GB · kernel {spec[2]}"
+
+
+def bench_runner_spec(d):
+    """parse_runner_spec of <d>/runner-spec.txt; None when the dir or file is missing or unparsable."""
+    path = os.path.join(d, "runner-spec.txt") if d else None
+    if not path or not os.path.isfile(path):
+        return None
+    with open(path, encoding="utf-8") as f:
+        return parse_runner_spec(f.read())
+
+
+def bench_runner_text(name, d):
+    """`bench-m1 4 vCPU · 15GB · kernel 6.x-azure` from the bench artifact's runner-spec.txt (header `bench_runner_spec`)."""
+    spec = bench_runner_spec(d)
+    return f"{name} {spec[0]} vCPU · {spec[1]}GB · kernel {spec[2]}" if spec else f"{name} {NA}"
+
+
+def dropped_ratio(runs):
+    """(ratio, dropped, planned) over the runs that have dropped_iterations, planned_attempt_rps and duration_s;
+    None when no run has all three or planned is 0 (docs/metrics.md `dropped_ratio`)."""
+    keys = ("dropped_iterations", "planned_attempt_rps", "duration_s")
+    usable = [r for r in runs if all(r.get(k) is not None for k in keys)]
+    dropped = sum(values(usable, "dropped_iterations"))
+    planned = sum(r["planned_attempt_rps"] * r["duration_s"] for r in usable)
+    if not usable or not planned:
+        return None
+    return dropped / planned, dropped, planned
+
+
+def pct(r):
+    return f"{r:.1%}"
+
+
+def dropped_footnote(strategy, dr, ratios):
+    """² bullet under the 성능 table. dr = dropped_ratio(default-strategy runs), ratios = known ratios of every strategy."""
+    if dr is None:
+        return "- ² bench-m1 `dropped_ratio` n/a: 아티팩트가 없거나 `dropped_iterations`·`planned_attempt_rps`가 없다."
+    r, dropped, planned = dr
+    lo, hi = (min(ratios), max(ratios)) if ratios else (r, r)
+    span = pct(lo) if pct(lo) == pct(hi) else f"{pct(lo)}~{pct(hi)}"
+    head = (f"- ² bench-m1 `{strategy}` `dropped_ratio` {pct(r)} (`dropped_iterations` {round(dropped):,} / "
+            f"계획 {round(planned):,}, 전략 전체 {span}). ")
+    if r > DROPPED_RATIO_MAX:
+        return head + ("5%를 넘어 생성기 포화: 이 잡의 `hold_p99_ms` 목표 판정은 보류하고 같은 잡 안의 전략 비교만 쓴다"
+                       "(요구사항 §4, ADR-0005 §8).")
+    return head + "5% 이하라 생성기 포화 아님, `hold_p99_ms` 목표 판정 유효(요구사항 §4)."
+
+
+def hold_summary(hold_med, r):
+    """`hold_p99_ms` part of the 한 줄 요약; r = default-strategy dropped_ratio or None."""
+    if r is not None and r > DROPPED_RATIO_MAX:
+        return f"`hold_p99_ms` 중앙값 {fmt(hold_med)} ms (목표 ≤ 200, 생성기 포화 `dropped_ratio` {pct(r)}라 판정 보류)"
+    return f"`hold_p99_ms` 중앙값 {fmt(hold_med)} ms (목표 ≤ 200)"
 
 
 def previous_report(reports, date):
@@ -164,6 +226,7 @@ def main():
     b2p = latest(m2_dir, "m3-payment-integrity-weekly-*.json") if m2_dir else {}
     b2t = latest(m2_dir, "m2-ticks-weekly-*.json") if m2_dir else {}
     b2h = latest(m2_dir, "m2-http-storm-*.json") if m2_dir else {}
+    bench_runner = f"{bench_runner_text('bench-m1', m1_dir)} / {bench_runner_text('bench-m2', m2_dir)}"
 
     strategy_env = os.environ.get("OPENRUN_HOLD_STRATEGY")
     strategy = strategy_env or DEFAULT_STRATEGY
@@ -204,6 +267,9 @@ def main():
         "scenario_hash": meta.get("scenario_hash"),
         "strategy": strategy,
         "runner_spec": runner_spec,
+        "bench_runner_spec": bench_runner,
+        "bench_m1_kernel": (bench_runner_spec(m1_dir) or (None, None, None))[2],
+        "bench_m2_kernel": (bench_runner_spec(m2_dir) or (None, None, None))[2],
         "runs": runs_text,
         "source_label": "synthetic 100%",
         "showtime_id": meta.get("showtime_id"),
@@ -243,6 +309,16 @@ def main():
     out["rank_api_server_p99_ms"] = http_p99(b2h)
     out["expire_backlog_max_s"] = wi.get("expire_backlog_max_s")
     prev = previous_report(args.reports, args.date)
+    dr = dropped_ratio(runs)
+    ratios = [x[0] for x in (dropped_ratio(a) for a in arrival.values()) if x is not None]
+    out.update({
+        "dropped_ratio": dr[0] if dr else None,
+        "dropped_iterations_bench": round(dr[1]) if dr else None,
+        "planned_iterations_bench": round(dr[2]) if dr else None,
+        "dropped_ratio_min_bench": min(ratios) if ratios else None,
+        "dropped_ratio_max_bench": max(ratios) if ratios else None,
+        "bench_m1_saturated": None if dr is None else dr[0] > DROPPED_RATIO_MAX,
+    })
 
     # --- 전략 비교
     strat_rows = []
@@ -252,10 +328,12 @@ def main():
         ov = total(*values(a, "oversell_count"), *values(b, "burst_oversell_remaining")) if (a or b) else None
         p99 = stats(a, "hold_p99_ms")
         thr = stats(a, "hold_throughput_rps")
+        sdr = dropped_ratio(a)
         out[f"oversell_count_{s}"] = ov
         out[f"hold_p99_ms_{s}"] = p99[0]
         out[f"hold_throughput_rps_{s}"] = thr[0]
-        strat_rows.append((s, fmt(ov), med_text(*p99), med_text(*thr)))
+        out[f"dropped_ratio_{s}"] = sdr[0] if sdr else None
+        strat_rows.append((s, fmt(ov), med_text(*p99), med_text(*thr), pct(sdr[0]) if sdr else NA))
     out["oversell_count_naive_bench"] = out.get("oversell_count_NAIVE")
 
     # --- 대기열
@@ -341,7 +419,7 @@ def main():
         integrity_text = f"정합성 4지표 모두 0 ({scope})"
     hold_med = perf["hold_p99_ms"][0]
     summary = (
-        f"{integrity_text}, `hold_p99_ms` 중앙값 {fmt(hold_med)} ms (목표 ≤ 200), "
+        f"{integrity_text}, {hold_summary(hold_med, dr[0] if dr else None)}, "
         f"주간 오픈런 `admission_rate_actual` {fmt(wq.get('admission_rate_actual'))}/s (설정 {fmt(admissions_cfg)}/s)."
     )
     out["summary_sentence"] = summary
@@ -371,6 +449,7 @@ def main():
         f"| `scenario_file` / `scenario_hash` | `{scenario_file}` / `{meta.get('scenario_hash') or NA}` |",
         f"| `strategy` | {strategy_text} |",
         f"| `runner_spec` | {runner_spec} |",
+        f"| `bench_runner_spec` | {bench_runner} |",
         f"| `runs` | {runs_text} |",
         "| `source_label` | synthetic 100% |",
         f"| 이번 주 변경 | {TO_WRITE} |",
@@ -401,7 +480,7 @@ def main():
         "",
         "| 지표 | 값 (최소~최대) | 지난주 | 목표 |",
         "|---|---|---|---|",
-        f"| `hold_p99_ms` | {med_text(*perf['hold_p99_ms'])} | {pv('hold_p99_ms')} | ≤ 200 |",
+        f"| `hold_p99_ms` | {med_text(*perf['hold_p99_ms'])}{' ²' if dr else ''} | {pv('hold_p99_ms')} | ≤ 200 |",
         f"| `hold_throughput_rps` | {med_text(*perf['hold_throughput_rps'])} | {pv('hold_throughput_rps')} | 보고 |",
         f"| `rank_api_p99_ms` | {fmt(storm.get('rank_api_p99_ms'))} | {pv('rank_api_p99_ms')} | ≤ 100 |",
         f"| `rank_api_server_p99_ms` | {fmt(http_p99(b2h))} | {pv('rank_api_server_p99_ms')} | ≤ 100 |",
@@ -410,14 +489,15 @@ def main():
         f"- `hold_p99_ms` · `hold_throughput_rps`는 bench-m1 `{strategy}` 도착률 실행, `rank_api_p99_ms` · "
         "`rank_api_server_p99_ms`는 bench-m2 새로고침 폭풍 1회(k6 체감 / 서버 `http.server.requests` status 200).",
         "- ¹ 주간 오픈런 integrity의 `expire_backlog_max_s`: 점검 시점 최대값(백로그), p99 미측정.",
+        dropped_footnote(strategy, dr, ratios),
         "",
         "### 전략 비교 (M1 이후 유지)",
         "",
-        "| `strategy` | `oversell_count` | `hold_p99_ms` | `hold_throughput_rps` |",
-        "|---|---|---|---|",
-        *[f"| {s} | {ov} | {p99} | {thr} |" for s, ov, p99, thr in strat_rows],
+        "| `strategy` | `oversell_count` | `hold_p99_ms` | `hold_throughput_rps` | `dropped_ratio` |",
+        "|---|---|---|---|---|",
+        *[f"| {s} | {ov} | {p99} | {thr} | {d} |" for s, ov, p99, thr, d in strat_rows],
         "",
-        "- `oversell_count`는 3회 합계(도착률 실행 + 버스트 잔존), 나머지는 중앙값 (최소~최대).",
+        "- `oversell_count`는 3회 합계(도착률 실행 + 버스트 잔존), `dropped_ratio`는 3회 합의 비율, 나머지는 중앙값 (최소~최대).",
         "",
         "## 대기열 (M2 이후)",
         "",
