@@ -23,7 +23,7 @@ ADR-0009는 "공개 API에 레이트리밋이 없다"를 알고 받는 리스크
 ### 2. 기본은 꺼짐. 데모 서버만 켠다
 
 - `openrun.ratelimit.enabled`(`OPENRUN_RATELIMIT_ENABLED`, 기본 `false`). 꺼져 있으면 인터셉터는 등록조차 하지 않는다. 로컬·CI·벤치·주간 오픈런은 그대로다(제약 1). 한도는 `openrun.ratelimit.ip.*`·`openrun.ratelimit.caller.*`로 읽되 기본값은 요구사항 §4의 숫자와 같다.
-- 데모 서버는 `.env`에 `OPENRUN_RATELIMIT_ENABLED=true`. compose `demo` 프로필의 api 서비스는 `server.forward-headers-strategy=framework`(`OPENRUN_FORWARD_HEADERS_STRATEGY`)로 띄워 Caddy가 붙인 `X-Forwarded-For`의 클라이언트 IP가 `remoteAddr`가 되게 한다. 로컬 기본값은 `none`: 프록시 없이 띄우는 API가 임의의 `X-Forwarded-For`를 믿으면 안 된다.
+- 데모 서버는 `.env`에 `OPENRUN_RATELIMIT_ENABLED=true`. compose `demo` 프로필의 api 서비스는 `server.forward-headers-strategy=framework`(`OPENRUN_FORWARD_HEADERS_STRATEGY`)로 띄워 Caddy가 붙인 `X-Forwarded-For`의 클라이언트 IP가 `remoteAddr`가 되게 한다. 로컬 기본값은 `none`: 프록시 없이 띄우는 API가 임의의 `X-Forwarded-For`를 믿으면 안 된다. Caddy는 `trusted_proxies`를 두지 않으면 클라이언트가 들고 온 `X-Forwarded-For`를 버리고 자기가 본 피어 IP만 적으므로(2.5 이후 기본), 데모 토폴로지에서 `framework`는 안전하다.
 - 키 저장소 상한: 마지막 사용 10분이 지난 키는 1분마다 지우고, 키 수가 100,000을 넘으면 **전부 비운다**(fail-open: 잠시 제한이 풀릴 뿐 서비스는 산다). 토큰을 돌려 키를 늘리는 공격이 메모리를 끝없이 먹지 못하게 하는 장치고, 정확한 LRU는 1.5차 Turnstile 때 다시 본다.
 
 ### 3. 경계
@@ -50,6 +50,6 @@ ADR-0009는 "공개 API에 레이트리밋이 없다"를 알고 받는 리스크
 
 ## 증명
 
-- `RateLimitTest`(apps/api, 켜진 설정의 별도 컨텍스트): P1-1 — 한도를 넘긴 `ip` 요청이 429 `RATE_LIMITED_IP`와 `Retry-After`를 받고 카운터가 1 오른다; `/queue/me`를 버스트 넘게 부르면 `RATE_LIMITED_CALLER`, 다른 토큰은 영향 없음; `/api/admin/**`·`/api/webhooks/**`·`/api/ping`은 한도 밖; `X-Forwarded-For`는 `framework` 전략일 때만 키가 된다.
+- `RateLimitTest`·`RateLimitDisabledTest`·`RateLimitForwardedHeadersOffTest`(apps/api; 켜진 설정은 별도 컨텍스트, 꺼진 기본은 다른 테스트와 같은 컨텍스트): P1-1 — 한도를 넘긴 `ip` 요청이 429 `RATE_LIMITED_IP`와 `Retry-After`를 받고 카운터가 1 오른다; `/queue/me`를 버스트 넘게 부르면 `RATE_LIMITED_CALLER`, 다른 토큰은 영향 없음; `/api/admin/**`·`/api/webhooks/**`·`/api/ping`은 한도 밖; `X-Forwarded-For`는 `framework` 전략일 때만 키가 된다(`none`이면 헤더를 바꿔도 같은 버킷). 키 저장소 sweep·상한 비움은 시계 주입이 없어 테스트하지 않았다(로그 `rate_limit_keys_cleared`로 운영 중 확인).
 - 기존 테스트 전부가 설정 없이(기본 꺼짐) 그대로 통과한다. 러너 벤치·주간 오픈런 수치에 변화가 없어야 한다(다음 토요일 리포트 #2로 확인).
 - `docs/deploy.md`의 확인 절차에 "`.env`에 켠 뒤 한 IP에서 101번 연타하면 429" 한 줄.

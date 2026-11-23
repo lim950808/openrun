@@ -76,6 +76,10 @@ services:
       OPENRUN_ADMIN_TOKEN: ${OPENRUN_ADMIN_TOKEN:-}
       # ADR-0009 §4: PT0S = off (local). The demo server uses PT15M so visitors always find an upcoming showtime.
       OPENRUN_DEMO_SHOWTIME_EVERY: ${OPENRUN_DEMO_SHOWTIME_EVERY:-PT0S}
+      # ADR-0010: off by default; the demo server sets OPENRUN_RATELIMIT_ENABLED=true in .env. Behind Caddy the
+      # client IP comes from X-Forwarded-For, so the demo API trusts forwarded headers (framework strategy).
+      OPENRUN_RATELIMIT_ENABLED: ${OPENRUN_RATELIMIT_ENABLED:-false}
+      OPENRUN_FORWARD_HEADERS_STRATEGY: framework
     # curl ships in the eclipse-temurin JRE image (ADR-0009 §1). /actuator is reachable only inside the compose network.
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8080/actuator/health"]

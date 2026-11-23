@@ -25,6 +25,9 @@ spring:
 
 server:
   port: 8080
+  # ADR-0010 §2. none = remoteAddr is the TCP peer and X-Forwarded-For is ignored: an API with no proxy in front must not
+  # trust that header. framework only behind Caddy (the demo compose sets it), so the client IP comes from X-Forwarded-For.
+  forward-headers-strategy: ${OPENRUN_FORWARD_HEADERS_STRATEGY:none}
 
 openrun:
   hold:
@@ -46,6 +49,16 @@ openrun:
   # (openssl rand -hex 32); callers then send the value as X-Admin-Token.
   admin:
     token: ${OPENRUN_ADMIN_TOKEN:}
+  # ADR-0010. Off by default: benches and the weekly open run send thousands of requests from one k6 IP. The demo
+  # server turns it on in .env. Limits mirror docs/requirements.md §4.
+  ratelimit:
+    enabled: ${OPENRUN_RATELIMIT_ENABLED:false}
+    ip:
+      per-second: ${OPENRUN_RATELIMIT_IP_PER_SECOND:50}
+      burst: ${OPENRUN_RATELIMIT_IP_BURST:100}
+    caller:
+      per-second: ${OPENRUN_RATELIMIT_CALLER_PER_SECOND:1}
+      burst: ${OPENRUN_RATELIMIT_CALLER_BURST:3}
   # ADR-0009 §4. PT0S = off. The demo server uses PT15M: a showtime opens at every 15 min boundary (:00 :15 :30 :45),
   # startsAt = openAt + 7 days, checked every tick-ms under ShedLock `demo-showtime`.
   demo:

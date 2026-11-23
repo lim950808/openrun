@@ -23,6 +23,7 @@ dependencies {
     implementation(libs.flyway.database.postgresql)
     implementation(libs.jackson.module.kotlin)
     implementation(libs.kotlin.reflect)
+    implementation(libs.bucket4j.core)
     implementation(libs.shedlock.spring)
     implementation(libs.shedlock.provider.jdbc.template)
     runtimeOnly(libs.postgresql)

@@ -55,6 +55,9 @@ class AdminTokenInterceptor(
     companion object {
         const val HEADER = "X-Admin-Token"
         const val PATH_PATTERN = "/api/admin/**"
+
+        /** Runs after the rate limit interceptor, [RateLimitInterceptor.ORDER] (ADR-0010 §1). */
+        const val ORDER = 10
     }
 }
 
@@ -64,6 +67,6 @@ class AdminTokenConfig(
     private val interceptor: AdminTokenInterceptor,
 ) : WebMvcConfigurer {
     override fun addInterceptors(registry: InterceptorRegistry) {
-        registry.addInterceptor(interceptor).addPathPatterns(AdminTokenInterceptor.PATH_PATTERN)
+        registry.addInterceptor(interceptor).addPathPatterns(AdminTokenInterceptor.PATH_PATTERN).order(AdminTokenInterceptor.ORDER)
     }
 }
